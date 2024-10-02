@@ -72,7 +72,7 @@ namespace ryujin
 #endif
 
     SelectedComponentsExtractor<Description, dim, Number>::check(
-        vtu_output_quantities_);
+        vtu_output_quantities_, *parabolic_system_);
   }
 
 
@@ -98,6 +98,7 @@ namespace ryujin
     auto selected_components =
         SelectedComponentsExtractor<Description, dim, Number>::extract(
             *hyperbolic_system_,
+            *parabolic_system_,
             state_vector,
             initial_precomputed_,
             alpha_,

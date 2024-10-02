@@ -251,7 +251,6 @@ namespace ryujin
        * about required sizes and store it in the offline_data_ object.
        */
       unsigned int n_auxiliary_state_vectors =
-          hyperbolic_system_.n_auxiliary_state_vectors() +
           parabolic_system_.n_auxiliary_state_vectors();
 
       offline_data_.prepare(

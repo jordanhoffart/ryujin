@@ -62,12 +62,6 @@ namespace ryujin
         return HyperbolicSystemView<dim, Number>{*this};
       }
 
-      unsigned int n_auxiliary_state_vectors() const
-      {
-        return auxiliary_component_names_.size();
-      }
-
-      ACCESSOR_READ_ONLY(auxiliary_component_names);
 
     private:
       /**
@@ -82,7 +76,6 @@ namespace ryujin
       double dry_state_relaxation_small_;
       double dry_state_relaxation_large_;
 
-      const std::vector<std::string> auxiliary_component_names_;
 
       template <int dim, typename Number>
       friend class HyperbolicSystemView;

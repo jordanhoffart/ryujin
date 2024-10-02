@@ -12,6 +12,7 @@ namespace ryujin
   template <typename Description, int dim, typename Number>
   struct SelectedComponentsExtractor {
     using HyperbolicSystem = typename Description::HyperbolicSystem;
+    using ParabolicSystem = typename Description::ParabolicSystem;
 
     using View =
         typename Description::template HyperbolicSystemView<dim, Number>;
@@ -22,7 +23,8 @@ namespace ryujin
 
     SelectedComponentsExtractor() = delete;
 
-    static void check(const std::vector<std::string> &selected)
+    static void check(const std::vector<std::string> &selected,
+                      const ParabolicSystem &parabolic_system)
     {
       const auto search = [&](const auto entry, const auto &names) {
         const auto pos = std::find(std::begin(names), std::end(names), entry);
@@ -30,22 +32,25 @@ namespace ryujin
       };
 
       for (const auto &entry : selected) {
-        const auto found = search(entry, View::component_names) ||
-                           search(entry, View::primitive_component_names) ||
-                           search(entry, View::precomputed_names) ||
-                           search(entry, View::initial_precomputed_names) ||
-                           (entry == "alpha");
-        AssertThrow(
-            found,
-            dealii::ExcMessage(
-                "Invalid component name: \"" + entry +
-                "\" is not a valid conserved/primitive/precomputed/initial "
-                "component name."));
+        const auto found =
+            search(entry, View::component_names) ||
+            search(entry, View::primitive_component_names) ||
+            search(entry, View::precomputed_names) ||
+            search(entry, View::initial_precomputed_names) ||
+            search(entry, parabolic_system.auxiliary_component_names()) ||
+            (entry == "alpha");
+        AssertThrow(found,
+                    dealii::ExcMessage(
+                        "Invalid component name: \"" + entry +
+                        "\" is not a valid "
+                        "conserved/primitive/precomputed/initial/auxiliary "
+                        "component name."));
       }
     }
 
     static std::vector<ScalarVector>
     extract(const HyperbolicSystem &hyperbolic_system,
+            const ParabolicSystem &parabolic_system,
             const StateVector &state_vector,
             const InitialPrecomputedVector &initial_precomputed,
             const ScalarVector &alpha,
@@ -61,6 +66,7 @@ namespace ryujin
       std::vector<std::tuple<std::size_t, std::size_t>> primitive_indices;
       std::vector<std::tuple<std::size_t, std::size_t>> precomputed_indices;
       std::vector<std::tuple<std::size_t, std::size_t>> initial_indices;
+      std::vector<std::tuple<std::size_t, std::size_t>> auxiliary_indices;
       std::vector<std::size_t> alpha_indices;
 
       for (std::size_t i = 0; const auto &entry : selected) {
@@ -81,6 +87,9 @@ namespace ryujin
         else if (search(View::precomputed_names, precomputed_indices))
           ;
         else if (search(View::initial_precomputed_names, initial_indices))
+          ;
+        else if (search(parabolic_system.auxiliary_component_names(),
+                        auxiliary_indices))
           ;
         else if (entry == "alpha")
           alpha_indices.push_back(i++);
@@ -113,6 +122,11 @@ namespace ryujin
       for (const auto &[i, k] : precomputed_indices) {
         const auto &prec = std::get<1>(state_vector);
         prec.extract_component(extracted_components[i], k);
+      }
+
+      for (const auto &[i, k] : auxiliary_indices) {
+        const auto &V = std::get<2>(state_vector);
+        extracted_components[i] = V.block(k);
       }
 
       for (const auto &[i, k] : initial_indices) {
