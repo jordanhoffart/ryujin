@@ -9,6 +9,7 @@
 #include "equation_of_state_jones_wilkins_lee.h"
 #include "equation_of_state_noble_abel_stiffened_gas.h"
 #include "equation_of_state_polytropic_gas.h"
+#include "equation_of_state_pressureless.h"
 #include "equation_of_state_sesame.h"
 #include "equation_of_state_van_der_waals.h"
 
@@ -37,6 +38,7 @@ namespace ryujin
       add(std::make_shared<PolytropicGas>(subsection));
       add(std::make_shared<Sesame>(subsection));
       add(std::make_shared<VanDerWaals>(subsection));
+      add(std::make_shared<Pressureless>(subsection));
     }
   } // namespace EquationOfStateLibrary
 } // namespace ryujin

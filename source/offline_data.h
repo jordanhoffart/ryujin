@@ -9,6 +9,7 @@
 
 #include "convenience_macros.h"
 #include "discretization.h"
+#include "mpi_ensemble.h"
 #include "sparse_matrix_simd.h"
 #include "state_vector.h"
 
@@ -41,6 +42,9 @@ namespace ryujin
    * @note The offline data precomputed in this class is problem
    * independent, it only depends on the chosen geometry and ansatz stored
    * in the Discretization class.
+   *
+   * @note Data structures in OfflineData are initialized with the ensemble
+   * subrange communicator stored in MPIEnsemble.
    *
    * @ingroup Mesh
    */
@@ -82,7 +86,7 @@ namespace ryujin
     /**
      * Constructor
      */
-    OfflineData(const MPI_Comm &mpi_communicator,
+    OfflineData(const MPIEnsemble &mpi_ensemble,
                 const Discretization<dim> &discretization,
                 const std::string &subsection = "/OfflineData");
 
@@ -96,13 +100,13 @@ namespace ryujin
      */
     void prepare(const unsigned int problem_dimension,
                  const unsigned int n_precomputed_values,
-                 const unsigned int n_auxiliary_state_vectors)
+                 const unsigned int n_parabolic_state_vectors)
     {
       setup(problem_dimension, n_precomputed_values);
       assemble();
       create_multigrid_data();
 
-      n_auxiliary_state_vectors_ = n_auxiliary_state_vectors;
+      n_parabolic_state_vectors_ = n_parabolic_state_vectors;
     }
 
     /**
@@ -136,11 +140,12 @@ namespace ryujin
     ACCESSOR_READ_ONLY_NO_DEREFERENCE(precomputed_vector_partitioner)
 
     /**
-     * The block size of the auxiliary state vector.
+     * The block size of the parabolic state vector.
      */
-    ACCESSOR_READ_ONLY(n_auxiliary_state_vectors);
+    ACCESSOR_READ_ONLY(n_parabolic_state_vectors);
 
-    /**
+    /*
+     *
      * The subinterval \f$[0,\texttt{n_export_indices()})\f$ contains all
      * (SIMD-vectorized) indices of the interval
      * \f$[0,\texttt{n_locally_internal()})\f$ that are exported to
@@ -303,6 +308,14 @@ namespace ryujin
      */
     void create_multigrid_data();
 
+    //@}
+    /**
+     * Private fields
+     */
+    //@{
+
+    const MPIEnsemble &mpi_ensemble_;
+
     std::unique_ptr<dealii::DoFHandler<dim>> dof_handler_;
 
     dealii::AffineConstraints<Number> affine_constraints_;
@@ -316,7 +329,7 @@ namespace ryujin
     std::shared_ptr<const dealii::Utilities::MPI::Partitioner>
         precomputed_vector_partitioner_;
 
-    unsigned int n_auxiliary_state_vectors_;
+    unsigned int n_parabolic_state_vectors_;
 
     unsigned int n_export_indices_;
     unsigned int n_locally_internal_;
@@ -349,8 +362,6 @@ namespace ryujin
     Number measure_of_omega_;
 
     dealii::SmartPointer<const Discretization<dim>> discretization_;
-
-    const MPI_Comm &mpi_communicator_;
 
     /**
      * Construct a boundary map for a given set of DoFHandler iterators.

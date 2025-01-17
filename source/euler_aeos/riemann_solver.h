@@ -119,7 +119,7 @@ namespace ryujin
        *
        * Cost: 0x pow, 1x division, 1x sqrt
        */
-      Number c(const Number gamma_Z) const;
+      Number c(const Number &gamma_Z) const;
 
       /**
        * FIXME

@@ -9,6 +9,7 @@
 
 #include "convenience_macros.h"
 #include "initial_values.h"
+#include "mpi_ensemble.h"
 #include "offline_data.h"
 #include "sparse_matrix_simd.h"
 #include "state_vector.h"
@@ -32,9 +33,14 @@ namespace ryujin
    * The invariant domain violation is detected in the limiter and
    * typically implies that the low-order update is already out of bounds.
    *
+   * @note Data structures in HyperbolicModule are initialized with the
+   * ensemble subrange communicator stored in MPIEnsemble. However, the
+   * time step size constraint (i.e. tau_max) is synchronized over the
+   * entire global communicator.
+   *
    * @ingroup HyperbolicModule
    */
-  enum class IDViolationStrategy {
+  enum class IDViolationStrategy : std::uint8_t {
     /**
      * Warn about an invariant domain violation but take no further
      * action.
@@ -108,7 +114,7 @@ namespace ryujin
      * Constructor
      */
     HyperbolicModule(
-        const MPI_Comm &mpi_communicator,
+        const MPIEnsemble &mpi_ensemble,
         std::map<std::string, dealii::Timer> &computing_timer,
         const OfflineData<dim, Number> &offline_data,
         const HyperbolicSystem &hyperbolic_system,
@@ -300,7 +306,7 @@ namespace ryujin
      */
     //@{
 
-    const MPI_Comm &mpi_communicator_;
+    const MPIEnsemble &mpi_ensemble_;
     std::map<std::string, dealii::Timer> &computing_timer_;
 
     dealii::SmartPointer<const OfflineData<dim, Number>> offline_data_;

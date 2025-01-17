@@ -43,17 +43,17 @@ namespace ryujin
 
 
         velocity_x_expression_ = "3.0";
-        this->template add_parameter(
+        this->add_parameter(
             "velocity x expression",
             velocity_x_expression_,
             "A function expression describing the x-component of the velocity");
 
         if constexpr (dim > 1) {
           velocity_y_expression_ = "0.0";
-          this->template add_parameter("velocity y expression",
-                                       velocity_y_expression_,
-                                       "A function expression describing the "
-                                       "y-component of the velocity");
+          this->add_parameter("velocity y expression",
+                              velocity_y_expression_,
+                              "A function expression describing the "
+                              "y-component of the velocity");
         }
 
         /*

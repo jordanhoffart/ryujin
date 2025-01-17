@@ -63,24 +63,9 @@ namespace ryujin
 
       //@}
       /**
-       * @name Stencil-based computation of bounds
-       *
-       * Intended usage:
-       * ```
-       * Limiter<dim, Number> limiter;
-       * for (unsigned int i = n_internal; i < n_owned; ++i) {
-       *   // ...
-       *   limiter.reset(i, U_i, flux_i);
-       *   for (unsigned int col_idx = 1; col_idx < row_length; ++col_idx) {
-       *     // ...
-       *     limiter.accumulate(js, U_j, flux_j, scaled_c_ij, affine_shift);
-       *   }
-       *   limiter.bounds(hd_i);
-       * }
-       * ```
+       * @name Computation and manipulation of bounds
        */
       //@{
-
       /**
        * The number of stored entries in the bounds array.
        */
@@ -102,6 +87,47 @@ namespace ryujin
           , precomputed_values(precomputed_values)
       {
       }
+
+      /**
+       * Given a state @p U_i and an index @p i return "strict" bounds,
+       * i.e., a minimal convex set containing the state.
+       */
+      Bounds projection_bounds_from_state(const unsigned int /*i*/,
+                                          const state_type & /*U_i*/) const
+      {
+        return Bounds{};
+      }
+
+      /**
+       * Given two bounds bounds_left, bounds_right, this function computes
+       * a larger, combined set of bounds that this is a (convex) superset
+       * of the two.
+       */
+      Bounds combine_bounds(const Bounds & /*bounds_left*/,
+                            const Bounds & /*bounds_right*/) const
+      {
+        return Bounds{};
+      }
+
+      //@}
+      /**
+       * @name Stencil-based computation of bounds
+       *
+       * Intended usage:
+       * ```
+       * Limiter<dim, Number> limiter;
+       * for (unsigned int i = n_internal; i < n_owned; ++i) {
+       *   // ...
+       *   limiter.reset(i, U_i, flux_i);
+       *   for (unsigned int col_idx = 1; col_idx < row_length; ++col_idx) {
+       *     // ...
+       *     limiter.accumulate(js, U_j, flux_j, scaled_c_ij, affine_shift);
+       *   }
+       *   limiter.bounds(hd_i);
+       * }
+       * ```
+       */
+      //@{
 
       /**
        * Reset temporary storage
@@ -136,17 +162,6 @@ namespace ryujin
         return relaxed_bounds;
       }
 
-      /**
-       * Given two bounds bounds_left, bounds_right, this function computes
-       * a larger, combined Bounds set that this is a (convex) superset of
-       * the two.
-       */
-      static Bounds combine_bounds(const Bounds & /*bounds_left*/,
-                                   const Bounds & /*bounds_right*/)
-      {
-        return Bounds{};
-      }
-
       //*}
       /** @name Convex limiter */
       //@{
@@ -164,26 +179,6 @@ namespace ryujin
                                      const Number t_max = Number(1.))
       {
         return {t_max, true};
-      }
-
-      //*}
-      /**
-       * @name Verify invariant domain property
-       */
-      //@{
-
-      /**
-       * Returns whether the state @p U is located in the invariant domain
-       * described by @p bounds. If @p U is a vectorized state then the
-       * function returns true if all vectorized values are located in the
-       * invariant domain.
-       */
-      static bool
-      is_in_invariant_domain(const HyperbolicSystem & /*hyperbolic_system*/,
-                             const Bounds & /*bounds*/,
-                             const state_type & /*U*/)
-      {
-        return true;
       }
 
     private:

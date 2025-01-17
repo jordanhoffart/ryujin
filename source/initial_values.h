@@ -8,6 +8,7 @@
 #include <compile_time_options.h>
 
 #include "initial_state_library.h"
+#include "mpi_ensemble.h"
 #include "offline_data.h"
 
 #include <deal.II/base/parameter_acceptor.h>
@@ -44,6 +45,8 @@ namespace ryujin
     //@{
     using HyperbolicSystem = typename Description::HyperbolicSystem;
 
+    using ParabolicSystem = typename Description::ParabolicSystem;
+
     using View =
         typename Description::template HyperbolicSystemView<dim, Number>;
 
@@ -69,8 +72,10 @@ namespace ryujin
     /**
      * Constructor.
      */
-    InitialValues(const HyperbolicSystem &hyperbolic_system,
+    InitialValues(const MPIEnsemble &mpi_ensemble,
                   const OfflineData<dim, Number> &offline_data,
+                  const HyperbolicSystem &hyperbolic_system,
+                  const ParabolicSystem &parabolic_system,
                   const std::string &subsection = "/InitialValues");
 
 
@@ -145,8 +150,11 @@ namespace ryujin
      */
     //@{
 
-    dealii::SmartPointer<const HyperbolicSystem> hyperbolic_system_;
+    const MPIEnsemble &mpi_ensemble_;
+
     dealii::SmartPointer<const OfflineData<dim, Number>> offline_data_;
+    dealii::SmartPointer<const HyperbolicSystem> hyperbolic_system_;
+    dealii::SmartPointer<const ParabolicSystem> parabolic_system_;
 
     typename InitialStateLibrary<Description, dim, Number>::
         initial_state_list_type initial_state_list_;

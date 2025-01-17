@@ -353,11 +353,11 @@ namespace ryujin
        * Apply boundary conditions.
        */
       template <typename Lambda>
-      state_type apply_boundary_conditions(
-          const dealii::types::boundary_id /*id*/,
-          const state_type &U,
-          const dealii::Tensor<1, dim, Number> & /*normal*/,
-          const Lambda & /*get_dirichlet_data*/) const;
+      state_type
+      apply_boundary_conditions(const dealii::types::boundary_id id,
+                                const state_type &U,
+                                const dealii::Tensor<1, dim, Number> &normal,
+                                const Lambda &get_dirichlet_data) const;
 
       //@}
       /**
@@ -701,6 +701,13 @@ namespace ryujin
       if (id == Boundary::dirichlet) {
         result = get_dirichlet_data();
 
+      } else if (id == Boundary::dirichlet_momentum) {
+        AssertThrow(false,
+                    dealii::ExcMessage(
+                        "Invalid boundary ID »Boundary::dirichlet_momentum«, "
+                        "enforcing Dirichlet boundary conditions on a momentum "
+                        "is not possible for scalar conservation equations."));
+
       } else if (id == Boundary::slip) {
         AssertThrow(
             false,
@@ -724,6 +731,9 @@ namespace ryujin
                                "dynamic boundary conditions are unavailable "
                                "for scalar conservation equations."));
         __builtin_trap();
+
+      } else {
+        AssertThrow(false, dealii::ExcNotImplemented());
       }
 
       return result;

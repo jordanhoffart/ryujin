@@ -7,6 +7,7 @@
 
 #include "hyperbolic_module.h"
 #include "introspection.h"
+#include "mpi_ensemble.h"
 #include "openmp.h"
 #include "scope.h"
 #include "simd.h"
@@ -26,7 +27,7 @@ namespace ryujin
 
   template <typename Description, int dim, typename Number>
   HyperbolicModule<Description, dim, Number>::HyperbolicModule(
-      const MPI_Comm &mpi_communicator,
+      const MPIEnsemble &mpi_ensemble,
       std::map<std::string, dealii::Timer> &computing_timer,
       const OfflineData<dim, Number> &offline_data,
       const HyperbolicSystem &hyperbolic_system,
@@ -37,7 +38,7 @@ namespace ryujin
       , indicator_parameters_(subsection + "/indicator")
       , limiter_parameters_(subsection + "/limiter")
       , riemann_solver_parameters_(subsection + "/riemann solver")
-      , mpi_communicator_(mpi_communicator)
+      , mpi_ensemble_(mpi_ensemble)
       , computing_timer_(computing_timer)
       , offline_data_(&offline_data)
       , hyperbolic_system_(&hyperbolic_system)
@@ -567,8 +568,12 @@ namespace ryujin
       Scope scope(computing_timer_,
                   "time step [H] _ - synchronization barriers");
 
-      /* MPI Barrier: */
-      tau_max.store(Utilities::MPI::min(tau_max.load(), mpi_communicator_));
+      /*
+       * MPI Barrier: Synchronize the maximal time-step size. This has to
+       * happen either over the global, or the local subrange communicator:
+       */
+      tau_max.store(Utilities::MPI::min(
+          tau_max.load(), mpi_ensemble_.synchronization_communicator()));
 
       AssertThrow(
           !std::isnan(tau_max) && !std::isinf(tau_max) && tau_max > 0.,
@@ -753,9 +758,11 @@ namespace ryujin
 #endif
 
             const auto c_ij = cij_matrix.template get_tensor<T>(i, col_idx);
-            const auto regularization =
-                T(100. * std::numeric_limits<Number>::min());
-            const auto scaled_c_ij = c_ij / std::max(d_ij, regularization);
+            constexpr auto eps = std::numeric_limits<Number>::epsilon();
+            const auto scale = dealii::compare_and_apply_mask<
+                dealii::SIMDComparison::less_than>(
+                std::abs(d_ij), T(eps * eps), T(0.), T(1.) / d_ij);
+            const auto scaled_c_ij = c_ij * scale;
 
             const auto flux_j = view.flux_contribution(
                 old_precomputed, initial_precomputed_, js, U_j);
@@ -940,7 +947,7 @@ namespace ryujin
             const unsigned int *js = sparsity_simd.columns(i) + stride_size;
             for (unsigned int col_idx = 1; col_idx < row_length;
                  ++col_idx, js += stride_size) {
-              bounds = Limiter::combine_bounds(
+              bounds = limiter.combine_bounds(
                   bounds,
                   bounds_.template get_tensor<T, std::array<T, n_bounds>>(js));
             }
@@ -1184,6 +1191,13 @@ namespace ryujin
     CALLGRIND_STOP_INSTRUMENTATION;
 
     /*
+     * Pass through the parabolic state vector
+     */
+    const auto &old_V = std::get<2>(old_state_vector);
+    auto &new_V = std::get<2>(new_state_vector);
+    new_V = old_V;
+
+    /*
      * Do we have to restart?
      */
 
@@ -1191,8 +1205,15 @@ namespace ryujin
       Scope scope(computing_timer_,
                   "time step [H] _ - synchronization barriers");
 
-      restart_needed.store(
-          Utilities::MPI::logical_or(restart_needed.load(), mpi_communicator_));
+      /*
+       * Synchronize whether we have to restart the time step. Even though
+       * the restart condition itself only affects the local ensemble we
+       * nevertheless need to synchronize the boolean in case we perform
+       * synchronized global time steps. (Otherwise different ensembles
+       * might end up with a different time step.)
+       */
+      restart_needed.store(Utilities::MPI::logical_or(
+          restart_needed.load(), mpi_ensemble_.synchronization_communicator()));
     }
 
     if (restart_needed) {
@@ -1205,6 +1226,10 @@ namespace ryujin
         throw Restart();
       }
     }
+
+    /* In debug mode poison precomputed values: */
+    Vectors::debug_poison_precomputed_values<Description>(new_state_vector,
+                                                          *offline_data_);
 
     /* Return the time step size tau: */
     return tau;

@@ -6,7 +6,6 @@
 #pragma once
 
 #include "initial_values.h"
-#include "simd.h"
 
 #include <deal.II/numerics/vector_tools.h>
 #include <deal.II/numerics/vector_tools.templates.h>
@@ -19,12 +18,16 @@ namespace ryujin
 
   template <typename Description, int dim, typename Number>
   InitialValues<Description, dim, Number>::InitialValues(
-      const HyperbolicSystem &hyperbolic_system,
+      const MPIEnsemble &mpi_ensemble,
       const OfflineData<dim, Number> &offline_data,
+      const HyperbolicSystem &hyperbolic_system,
+      const ParabolicSystem &parabolic_system,
       const std::string &subsection)
       : ParameterAcceptor(subsection)
-      , hyperbolic_system_(&hyperbolic_system)
+      , mpi_ensemble_(mpi_ensemble)
       , offline_data_(&offline_data)
+      , hyperbolic_system_(&hyperbolic_system)
+      , parabolic_system_(&parabolic_system)
   {
     ParameterAcceptor::parse_parameters_call_back.connect(std::bind(
         &InitialValues<Description, dim, Number>::parse_parameters_callback,
@@ -59,7 +62,10 @@ namespace ryujin
      * configurations defined in the InitialStateLibrary namespace:
      */
     InitialStateLibrary<Description, dim, Number>::populate_initial_state_list(
-        initial_state_list_, *hyperbolic_system_, subsection);
+        initial_state_list_,
+        *hyperbolic_system_,
+        *parabolic_system_,
+        subsection);
   }
 
   namespace
@@ -247,21 +253,6 @@ namespace ryujin
     }
 
     U.update_ghost_values();
-
-#ifdef DEBUG
-    /* Poison constrained degrees of freedom: */
-    {
-      const unsigned int n_owned = offline_data_->n_locally_owned();
-      const auto &partitioner = offline_data_->scalar_partitioner();
-      for (unsigned int i = 0; i < n_owned; ++i) {
-        if (offline_data_->affine_constraints().is_constrained(
-                partitioner->local_to_global(i)))
-          U.write_tensor(dealii::Tensor<1, dim + 2, Number>() *
-                             std::numeric_limits<Number>::signaling_NaN(),
-                         i);
-      }
-    }
-#endif
 
     return U;
   }

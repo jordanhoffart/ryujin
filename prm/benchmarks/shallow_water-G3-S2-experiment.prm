@@ -42,7 +42,7 @@ subsection B - Equation
 
   set reference water depth        = 1
   set dry state relaxation large   = 1e4
-  set dry state relaxation small   = 1e4
+  set dry state relaxation small   = 1e2
 
   set gravity                      = 9.81
   set manning friction coefficient = 0.01
@@ -96,9 +96,6 @@ subsection F - HyperbolicModule
     set newton max iterations    = 2
     set newton tolerance         = 1e-10
     set relaxation factor        = 2
-
-    set limit on kinetic energy  = false
-    set limit on square velocity = true
   end
 end
 

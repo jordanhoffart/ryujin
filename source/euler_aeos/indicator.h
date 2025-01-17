@@ -258,8 +258,8 @@ namespace ryujin
         denominator += std::abs(d_eta_i[k] * right[k]);
       }
 
-      const auto quotient =
-          std::abs(numerator) / (denominator + hd_i * std::abs(eta_i));
+      const auto quotient = safe_division(std::abs(numerator),
+                                          denominator + hd_i * std::abs(eta_i));
 
       return std::min(Number(1.), parameters.evc_factor() * quotient);
     }

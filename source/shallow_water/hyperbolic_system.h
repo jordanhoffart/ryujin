@@ -72,7 +72,6 @@ namespace ryujin
       double manning_friction_coefficient_;
 
       double reference_water_depth_;
-      double dry_state_relaxation_factor_;
       double dry_state_relaxation_small_;
       double dry_state_relaxation_large_;
 
@@ -145,12 +144,6 @@ namespace ryujin
       DEAL_II_ALWAYS_INLINE inline ScalarNumber reference_water_depth() const
       {
         return hyperbolic_system_.reference_water_depth_;
-      }
-
-      DEAL_II_ALWAYS_INLINE inline ScalarNumber
-      dry_state_relaxation_factor() const
-      {
-        return hyperbolic_system_.dry_state_relaxation_factor_;
       }
 
       DEAL_II_ALWAYS_INLINE inline ScalarNumber
@@ -658,11 +651,6 @@ namespace ryujin
                     reference_water_depth_,
                     "Problem specific water depth reference");
 
-      dry_state_relaxation_factor_ = 2.e-1;
-      add_parameter("dry state relaxation factor",
-                    dry_state_relaxation_factor_,
-                    "Problem specific dry-state relaxation parameter");
-
       dry_state_relaxation_small_ = 1.e2;
       add_parameter("dry state relaxation small",
                     dry_state_relaxation_small_,
@@ -960,14 +948,10 @@ namespace ryujin
         result = get_dirichlet_data();
 
       } else if (id == Boundary::dirichlet_momentum) {
-        /*
-         * For some benchmarks for the Shallow Water Equations, only the
-         * momentum is enforced. We "do nothing" for the water
-         * depth.
-         */
-        auto m_dir = momentum(get_dirichlet_data());
+        /* Only enforce Dirichlet conditions on the momentum: */
+        auto m_dirichlet = momentum(get_dirichlet_data());
         for (unsigned int k = 0; k < dim; ++k)
-          result[k + 1] = m_dir[k];
+          result[k + 1] = m_dirichlet[k];
 
       } else if (id == Boundary::slip) {
         auto m = momentum(U);
@@ -1015,6 +999,9 @@ namespace ryujin
         }
 
         /* Supersonic outflow: do nothing, i.e., keep U as is */
+
+      } else {
+        AssertThrow(false, dealii::ExcNotImplemented());
       }
 
       return result;

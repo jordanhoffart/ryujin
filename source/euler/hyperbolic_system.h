@@ -1108,6 +1108,12 @@ namespace ryujin
       if (id == Boundary::dirichlet) {
         result = get_dirichlet_data();
 
+      } else if (id == Boundary::dirichlet_momentum) {
+        /* Only enforce Dirichlet conditions on the momentum: */
+        auto m_dirichlet = momentum(get_dirichlet_data());
+        for (unsigned int k = 0; k < dim; ++k)
+          result[k + 1] = m_dirichlet[k];
+
       } else if (id == Boundary::slip) {
         auto m = momentum(U);
         m -= 1. * (m * normal) * normal;
@@ -1154,6 +1160,9 @@ namespace ryujin
         }
 
         /* Supersonic outflow: do nothing, i.e., keep U as is */
+
+      } else {
+        AssertThrow(false, dealii::ExcNotImplemented());
       }
 
       return result;

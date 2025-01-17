@@ -11,6 +11,7 @@
 
 #include "convenience_macros.h"
 #include "initial_values.h"
+#include "mpi_ensemble.h"
 #include "offline_data.h"
 
 #include <deal.II/base/parameter_acceptor.h>
@@ -59,7 +60,7 @@ namespace ryujin
      * Constructor.
      */
     ParabolicModule(
-        const MPI_Comm &mpi_communicator,
+        const MPIEnsemble &mpi_ensemble,
         std::map<std::string, dealii::Timer> &computing_timer,
         const OfflineData<dim, Number> &offline_data,
         const HyperbolicSystem &hyperbolic_system,

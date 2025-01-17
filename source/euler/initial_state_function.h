@@ -112,7 +112,7 @@ namespace ryujin
         pressure_function_->set_time(t);
         full_primitive_state[1 + dim] = pressure_function_->value(point);
 
-        return view.from_primitive_state(full_primitive_state);
+        return view.from_initial_state(full_primitive_state);
       }
 
     private:

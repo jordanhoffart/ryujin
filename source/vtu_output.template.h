@@ -20,7 +20,7 @@ namespace ryujin
 
   template <typename Description, int dim, typename Number>
   VTUOutput<Description, dim, Number>::VTUOutput(
-      const MPI_Comm &mpi_communicator,
+      const MPIEnsemble &mpi_ensemble,
       const OfflineData<dim, Number> &offline_data,
       const HyperbolicSystem &hyperbolic_system,
       const ParabolicSystem &parabolic_system,
@@ -29,7 +29,7 @@ namespace ryujin
       const ScalarVector &alpha,
       const std::string &subsection /*= "VTUOutput"*/)
       : ParameterAcceptor(subsection)
-      , mpi_communicator_(mpi_communicator)
+      , mpi_ensemble_(mpi_ensemble)
       , offline_data_(&offline_data)
       , hyperbolic_system_(&hyperbolic_system)
       , parabolic_system_(&parabolic_system)
@@ -147,10 +147,10 @@ namespace ryujin
         /* MPI-based synchronous IO */
         data_out->write_vtu_in_parallel(
             name + "_" + Utilities::to_string(cycle, 6) + ".vtu",
-            mpi_communicator_);
+            mpi_ensemble_.ensemble_communicator());
       } else {
         data_out->write_vtu_with_pvtu_record(
-            "", name, cycle, mpi_communicator_, 6);
+            "", name, cycle, mpi_ensemble_.ensemble_communicator(), 6);
       }
     }
 
@@ -194,10 +194,14 @@ namespace ryujin
         /* MPI-based synchronous IO */
         data_out->write_vtu_in_parallel(
             name + "-levelsets_" + Utilities::to_string(cycle, 6) + ".vtu",
-            mpi_communicator_);
+            mpi_ensemble_.ensemble_communicator());
       } else {
         data_out->write_vtu_with_pvtu_record(
-            "", name + "-levelsets", cycle, mpi_communicator_, 6);
+            "",
+            name + "-levelsets",
+            cycle,
+            mpi_ensemble_.ensemble_communicator(),
+            6);
       }
     }
 

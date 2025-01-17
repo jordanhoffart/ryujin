@@ -64,8 +64,6 @@ end
 
 subsection F - HyperbolicModule
   subsection limiter
-    set limit on kinetic energy  = false
-    set limit on square velocity = true
   end
 end
 

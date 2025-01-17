@@ -12,6 +12,7 @@
 #include <deal.II/base/mpi.h>
 #include <deal.II/base/parameter_acceptor.h>
 
+#include <algorithm>
 #include <boost/signals2.hpp>
 
 #include <string>
@@ -25,8 +26,27 @@ namespace ryujin
       "\nDave, this conversation can serve no purpose anymore. Goodbye.\n\n";
 
   /**
-   * Dispatcher class that calls into the right TimeLoop for a configured
-   * equation depending on what has been set in the parameter file.
+   * Dispatcher class that calls into the right TimeLoop depending on what
+   * has been set in the parameter file.
+   *
+   * When starting up the ryujin executable we are faced with the following
+   * difficulties:
+   *  - The TimeLoop class is templated in the equation Description and
+   *    dimension that have to be read from the `ryujin.prm` parameter
+   *    file.
+   *  - The final set of valid parameters that can be configured in the
+   *  `ryujin.prm` depend on the runtime parameters "dimension" and
+   *  "equation" themselves.
+   *
+   * We thus first read in three parameters from the parameter file:
+   * ```
+   * subsection B - Equation
+   *   set dimension           = ...
+   *   set equation            = ...
+   * end
+   * ```
+   * and then create an instance of the correct TimeLoop class, that takes
+   * the dimension and equation as template parameters.
    *
    * @ingroup TimeLoop
    */
@@ -54,7 +74,8 @@ namespace ryujin
                       dave + "No equation has been registered. Consequently, "
                              "there is nothing for us to do.\n"));
 
-      signals->create_parameter_files();
+      if (signals != nullptr)
+        signals->create_parameter_files();
     }
 
 
@@ -92,8 +113,12 @@ namespace ryujin
                       dave + "No equation has been registered. Consequently, "
                              "there is nothing for us to do.\n"));
 
-      signals->dispatch(
-          dimension_, equation_, parameter_file, mpi_comm, time_loop_executed_);
+      if (signals != nullptr)
+        signals->dispatch(dimension_,
+                          equation_,
+                          parameter_file,
+                          mpi_comm,
+                          time_loop_executed_);
 
       AssertThrow(time_loop_executed_ == true,
                   dealii::ExcMessage(dave +
@@ -201,7 +226,7 @@ namespace ryujin
       prm.leave_subsection();
 
       std::string base_name = name;
-      std::replace(base_name.begin(), base_name.end(), ' ', '_');
+      std::ranges::replace(base_name, ' ', '_');
       base_name += "-" + std::to_string(dim) + "d";
 
       if (dealii::Utilities::MPI::this_mpi_process(MPI_COMM_SELF) == 0) {

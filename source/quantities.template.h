@@ -49,13 +49,13 @@ namespace ryujin
 
   template <typename Description, int dim, typename Number>
   Quantities<Description, dim, Number>::Quantities(
-      const MPI_Comm &mpi_communicator,
+      const MPIEnsemble &mpi_ensemble,
       const OfflineData<dim, Number> &offline_data,
       const HyperbolicSystem &hyperbolic_system,
       const ParabolicSystem &parabolic_system,
       const std::string &subsection /*= "Quantities"*/)
       : ParameterAcceptor(subsection)
-      , mpi_communicator_(mpi_communicator)
+      , mpi_ensemble_(mpi_ensemble)
       , offline_data_(&offline_data)
       , hyperbolic_system_(&hyperbolic_system)
       , parabolic_system_(&parabolic_system)
@@ -267,10 +267,11 @@ namespace ryujin
        * only MPI ranks participating who actually have boundary values.
        */
 
-      const auto received =
-          Utilities::MPI::gather(mpi_communicator_, interior_map);
+      const auto received = Utilities::MPI::gather(
+          mpi_ensemble_.ensemble_communicator(), interior_map);
 
-      if (Utilities::MPI::this_mpi_process(mpi_communicator_) == 0) {
+      if (Utilities::MPI::this_mpi_process(
+              mpi_ensemble_.ensemble_communicator()) == 0) {
 
         std::ofstream output(base_name_ + "-" + name + "-R" +
                              Utilities::to_string(cycle, 4) + "-points.dat");
@@ -309,10 +310,11 @@ namespace ryujin
        * only MPI ranks participating who actually have boundary values.
        */
 
-      const auto received =
-          Utilities::MPI::gather(mpi_communicator_, boundary_map);
+      const auto received = Utilities::MPI::gather(
+          mpi_ensemble_.ensemble_communicator(), boundary_map);
 
-      if (Utilities::MPI::this_mpi_process(mpi_communicator_) == 0) {
+      if (Utilities::MPI::this_mpi_process(
+              mpi_ensemble_.ensemble_communicator()) == 0) {
 
         std::ofstream output(base_name_ + "-" + name + "-R" +
                              Utilities::to_string(cycle, 4) + "-points.dat");
@@ -387,7 +389,7 @@ namespace ryujin
            * boundary mass.
            */
           constexpr auto index =
-              std::is_same<point_type, interior_point>::value ? 1 : 3;
+              std::is_same_v<point_type, interior_point> ? 1 : 3;
           const auto mass_i = std::get<index>(point);
 
           const auto U_i = U.get_tensor(i);
@@ -408,12 +410,13 @@ namespace ryujin
 
     /* synchronize MPI ranks (MPI Barrier): */
 
-    mass_sum = Utilities::MPI::sum(mass_sum, mpi_communicator_);
+    mass_sum =
+        Utilities::MPI::sum(mass_sum, mpi_ensemble_.ensemble_communicator());
 
-    std::get<0>(spatial_average) =
-        Utilities::MPI::sum(std::get<0>(spatial_average), mpi_communicator_);
-    std::get<1>(spatial_average) =
-        Utilities::MPI::sum(std::get<1>(spatial_average), mpi_communicator_);
+    std::get<0>(spatial_average) = Utilities::MPI::sum(
+        std::get<0>(spatial_average), mpi_ensemble_.ensemble_communicator());
+    std::get<1>(spatial_average) = Utilities::MPI::sum(
+        std::get<1>(spatial_average), mpi_ensemble_.ensemble_communicator());
 
     /* take average: */
 
@@ -438,9 +441,11 @@ namespace ryujin
      * only MPI ranks participating who actually have interior values.
      */
 
-    const auto received = Utilities::MPI::gather(mpi_communicator_, values);
+    const auto received =
+        Utilities::MPI::gather(mpi_ensemble_.ensemble_communicator(), values);
 
-    if (Utilities::MPI::this_mpi_process(mpi_communicator_) == 0) {
+    if (Utilities::MPI::this_mpi_process(
+            mpi_ensemble_.ensemble_communicator()) == 0) {
 
       std::ofstream output(file_name);
       output << std::scientific << std::setprecision(14);
@@ -467,7 +472,8 @@ namespace ryujin
       const std::vector<std::tuple<Number, value_type>> &values,
       bool append)
   {
-    if (Utilities::MPI::this_mpi_process(mpi_communicator_) == 0) {
+    if (Utilities::MPI::this_mpi_process(
+            mpi_ensemble_.ensemble_communicator()) == 0) {
       std::ofstream output;
       output << std::scientific << std::setprecision(14);
 

@@ -1,0 +1,65 @@
+##
+#
+# Test the Euler AEOS dynamic boundary conditions by setting up a
+# stationary isentropic vortex on a very small domain. We use the
+# polytropic gas equation of state with gamma = 1.8.
+#
+##
+
+subsection A - TimeLoop
+  set basename             = test
+
+  set enable compute error = true
+  set error normalize      = true
+  set error quantities     = rho, m_1, m_2, E
+
+  set final time           = 2.0
+  set timer granularity    = 2.0
+
+  set terminal update interval  = 0
+end
+
+subsection B - Equation
+  set dimension = 2
+  set equation  = euler aeos
+
+  set equation of state = polytropic gas
+
+  subsection polytropic gas
+    set gamma          = 1.80
+  end
+end
+
+subsection C - Discretization
+  set geometry        = rectangular domain
+  set mesh refinement     = 6
+
+  subsection rectangular domain
+    set boundary condition bottom = dynamic
+    set boundary condition left   = dynamic
+    set boundary condition right  = dynamic
+    set boundary condition top    = dynamic
+
+    set position bottom left      = -2, -2
+    set position top right        =  2,  2
+  end
+end
+
+subsection E - InitialValues
+  set configuration = isentropic vortex
+  set direction     =  1,  1
+  set position      =  0,  0
+
+  subsection isentropic vortex
+    set gamma       = 1.8
+    set mach number = 0
+    set beta        = 5
+  end
+end
+
+subsection H - TimeIntegrator
+  set cfl min               = 0.5
+  set cfl max               = 0.5
+  set cfl recovery strategy = none
+  set time stepping scheme  = erk 33
+end

@@ -25,13 +25,34 @@ namespace ryujin
 {
   namespace EulerAEOS
   {
+    /*
+     * For various divisions in the arbirtray equation of state module we
+     * have a mathematical guarantee that the numerator and denominator are
+     * nonnegative and the limit (of zero numerator and denominator) must
+     * converge to zero. The following function takes care of rounding
+     * issues when computing such quotients by (a) avoiding division by
+     * zero and (b) ensuring non-negativity of the result.
+     */
+    template <typename Number>
+    DEAL_II_ALWAYS_INLINE inline Number safe_division(const Number &numerator,
+                                                      const Number &denominator)
+    {
+      using ScalarNumber = typename get_value_type<Number>::type;
+      constexpr ScalarNumber min = std::numeric_limits<ScalarNumber>::min();
+
+      return std::max(numerator, Number(0.)) /
+             std::max(denominator, Number(min));
+    }
+
+
     template <int dim, typename Number>
     class HyperbolicSystemView;
 
     /**
      * The compressible Euler equations of gas dynamics. Generalized
-     * implementation with a modified approximative Riemann solver,
-     * indicator, and limiter suitable for arbitrary equations of state.
+     * implementation with a modified approximate Riemann solver for
+     * finding max wave speed, indicator, and limiter suitable for
+     * arbitrary equations of state.
      *
      * We have a (2 + dim) dimensional state space \f$[\rho, \textbf m,
      * E]\f$, where \f$\rho\f$ denotes the density, \f$\textbf m\f$ is the
@@ -251,13 +272,33 @@ namespace ryujin
       }
 
       /**
-       * Return the interpolatory co-volume \f$b_{\text{interp}}\f$.
+       * Return the interpolatory covolume \f$b_{\text{interp}}\f$.
        */
       DEAL_II_ALWAYS_INLINE inline ScalarNumber eos_interpolation_b() const
       {
         const auto &eos = hyperbolic_system_.selected_equation_of_state_;
         return ScalarNumber(eos->interpolation_b());
       }
+
+      /**
+       * Return the interpolatory reference pressure \f$p_{\infty}\f$.
+       */
+      DEAL_II_ALWAYS_INLINE inline ScalarNumber eos_interpolation_pinfty() const
+      {
+        const auto &eos = hyperbolic_system_.selected_equation_of_state_;
+        return ScalarNumber(eos->interpolation_pinfty());
+      }
+
+      /**
+       * Return the interpolatory reference specific internal energy
+       * \f$q\f$.
+       */
+      DEAL_II_ALWAYS_INLINE inline ScalarNumber eos_interpolation_q() const
+      {
+        const auto &eos = hyperbolic_system_.selected_equation_of_state_;
+        return ScalarNumber(eos->interpolation_q());
+      }
+
 
       /**
        * constexpr boolean used in the EulerInitialStates namespace
@@ -268,6 +309,7 @@ namespace ryujin
        * constexpr boolean used in the EulerInitialStates namespace
        */
       static constexpr bool have_eos_interpolation_b = true;
+
 
       //@}
       /**
@@ -352,7 +394,7 @@ namespace ryujin
       static inline const auto precomputed_names =
           std::array<std::string, n_precomputed_values>{
               {"p",
-               "surrogate_gamma",
+               "surrogate_gamma_min",
                "surrogate_specific_entropy",
                "surrogate_harten_entropy"}};
 
@@ -479,9 +521,9 @@ namespace ryujin
        * For a given (2+dim dimensional) state vector <code>U</code>, compute
        * and return a (scaled) surrogate specific entropy
        * \f[
-       *   e^{(\gamma_{\text{min} - 1)s} =
-       *   \frac{\rho\,e}{\rho^\gamma_{\text{min}}
-       *   (1 - b * \rho)^(\gamma_{\text{min}} -1).
+       *   e^{(\gamma_{\text{min}} - 1)s} =
+       *   \frac{\rho\,(e-q)-p_{\infty}(1-b\rho)}{\rho^\gamma_{\text{min}}}
+       *   (1 - b\,\rho)^{\gamma_{\text{min}} -1}.
        * \f]
        */
       Number surrogate_specific_entropy(const state_type &U,
@@ -491,8 +533,10 @@ namespace ryujin
        * For a given (2+dim dimensional) state vector <code>U</code>, compute
        * and return a surrogate Harten-type entropy
        * \f[
-       *   \eta = (\rho^2 e \cdot (1 - interpolation_b \rho)
-       *   ^{\gamma_{text}min} - 1})^{1 / (\gamma_{\text{min}} + 1)}.
+       *   \eta =
+       *   (1-b\,\rho)^{\frac{\gamma_{\text{min}-1}}{\gamma_{\text{min}}+1}}
+       *   \big(\rho^2 (e-q) - \rho p_{\infty}(1-b\,\rho)\big)
+       *   ^{1/(\gamma_{\text{min}}+1)}
        * \f]
        */
       Number surrogate_harten_entropy(const state_type &U,
@@ -502,8 +546,10 @@ namespace ryujin
        * For a given (2+dim dimensional) state vector <code>U</code>, compute
        * and return the derivative \f$\eta'\f$ of the Harten-type entropy
        * \f[
-       *   \eta = (\rho^2 e \cdot (1 - interpolation_b \rho)
-       *   ^{\gamma_{text}min} - 1})^{1 / (\gamma_{\text{min}} + 1)}.
+       *   \eta =
+       *   (1-b\,\rho)^{\frac{\gamma_{\text{min}-1}}{\gamma_{\text{min}}+1}}
+       *   \big(\rho^2 (e-q) - \rho p_{\infty}(1-b\,\rho)\big)
+       *   ^{1/(\gamma_{\text{min}}+1)}
        * \f]
        */
       state_type
@@ -515,7 +561,8 @@ namespace ryujin
        * For a given (2+dim dimensional) state vector <code>U</code> and
        * pressure <code>p</code>, compute a surrogate gamma:
        * \f[
-       *   \gamma(\rho, p, e) = 1 + \frac{p * (1 - b * \rho)}{\rho * e}
+       *   \gamma(\rho, e, p) = 1 + \frac{(p + p_{\infty})(1 - b \rho)}
+       *   {\rho (e-q) - p_{\infty}(1-b \rho)}
        * \f]
        *
        * This function is used in various places to create interpolations
@@ -527,7 +574,8 @@ namespace ryujin
        * For a given (2+dim dimensional) state vector <code>U</code> and
        * gamma <code>gamma</code>, compute a surrogate pressure:
        * \f[
-       *   p(\rho, \gamma, e) = \frac{(\gamma - 1) * \rho * e}{1 - b * \rho}
+       *   p(\rho, e, \gamma) = (\gamma - 1) \frac{\rho (e - q)}{1 - b \rho}
+       *   -\gamma\,p_{\infty}
        * \f]
        *
        * This function is the complementary function to surrogate_gamma(),
@@ -538,6 +586,17 @@ namespace ryujin
        * ```
        */
       Number surrogate_pressure(const state_type &U, const Number &gamma) const;
+
+      /**
+       * For a given (2+dim dimensional) state vector <code>U</code> and
+       * gamma <code>gamma</code>, compute a surrogate speed of sound:
+       * \f{align}
+       *   c^2(\rho, e, \gamma) = \frac{\gamma (p + p_\infty)}{\rho X}
+       *       = \frac{\gamma (\gamma -1)[\rho (e - q) - p_\infty X]}{\rho X^2}
+       * \f}
+       */
+      Number surrogate_speed_of_sound(const state_type &U,
+                                      const Number &gamma) const;
 
       /**
        * Returns whether the state @p U is admissible. If @p U is a
@@ -561,7 +620,9 @@ namespace ryujin
       template <int component>
       state_type prescribe_riemann_characteristic(
           const state_type &U,
+          const Number &p,
           const state_type &U_bar,
+          const Number &p_bar,
           const dealii::Tensor<1, dim, Number> &normal) const;
 
       /**
@@ -695,7 +756,7 @@ namespace ryujin
       state_type expand_state(const ST &state) const;
 
       /**
-       * Given an initial state [rho, u_1, ..., u_?, p] return a
+       * Given an initial state [rho, u_1, ..., u_d, p] return a
        * conserved state [rho, m_1, ..., m_d, E]. Most notably, the
        * specific equation of state oracle is queried to convert the
        * pressure value into a specific internal energy.
@@ -1035,15 +1096,18 @@ namespace ryujin
     HyperbolicSystemView<dim, Number>::surrogate_specific_entropy(
         const state_type &U, const Number &gamma_min) const
     {
-      using ScalarNumber = typename get_value_type<Number>::type;
+      const auto b = Number(eos_interpolation_b());
+      const auto pinf = Number(eos_interpolation_pinfty());
+      const auto q = Number(eos_interpolation_q());
 
       const auto rho = density(U);
       const auto rho_inverse = ScalarNumber(1.) / rho;
-      const auto interpolation_b = Number(eos_interpolation_b());
-      const auto covolume = Number(1.) - interpolation_b * rho;
 
-      return internal_energy(U) *
-             ryujin::pow(rho_inverse - interpolation_b, gamma_min) / covolume;
+      const auto covolume = Number(1.) - b * rho;
+
+      const auto shift = internal_energy(U) - rho * q - pinf * covolume;
+
+      return shift * ryujin::pow(rho_inverse - b, gamma_min) / covolume;
     }
 
 
@@ -1052,18 +1116,25 @@ namespace ryujin
     HyperbolicSystemView<dim, Number>::surrogate_harten_entropy(
         const state_type &U, const Number &gamma_min) const
     {
+      const auto b = Number(eos_interpolation_b());
+      const auto pinf = Number(eos_interpolation_pinfty());
+      const auto q = Number(eos_interpolation_q());
+
       const auto rho = density(U);
       const auto m = momentum(U);
       const auto E = total_energy(U);
-      const auto rho_rho_e = rho * E - ScalarNumber(0.5) * m.norm_square();
+      const auto rho_rho_e_q =
+          rho * E - ScalarNumber(0.5) * m.norm_square() - rho * rho * q;
 
       const auto exponent = ScalarNumber(1.) / (gamma_min + Number(1.));
 
-      const auto interpolation_b = Number(eos_interpolation_b());
-      const auto covolume = Number(1.) - interpolation_b * rho;
+      const auto covolume = Number(1.) - b * rho;
       const auto covolume_term = ryujin::pow(covolume, gamma_min - Number(1.));
 
-      return ryujin::pow(rho_rho_e * covolume_term, exponent);
+      const auto rho_pinfcov = rho * pinf * covolume;
+
+      return ryujin::pow(
+          positive_part(rho_rho_e_q - rho_pinfcov) * covolume_term, exponent);
     }
 
 
@@ -1075,35 +1146,46 @@ namespace ryujin
     {
       /*
        * With
-       *   eta = (rho^2 e * (1 - interpolation_b * rho)) ^ {1 / (gamma + 1)},
-       *   rho^2 e = rho * E - 1/2 |m|^2,
+       *   eta = (shift * (1-b*rho)^{gamma-1}) ^ {1/(gamma+1)},
+       *   shift = rho * E - 1/2 |m|^2 - rho^2 * q - p_infty * rho * (1 - b rho)
+       *
+       *   shift' = [E - 2 * rho * q - p_infty * (1 - 2 b rho), -m, rho]^T
+       *   factor = 1/(gamma+1) * (eta/(1-b rho))^-gamma / (1-b rho)^2
        *
        * we get
        *
-       *   eta' = factor * (1 - interpolation_b rho) * (E,-m,rho)^T +
-       *          factor * rho^2 e * (gamma - 1) * b * (1,0,0)^T
+       *   eta' = factor * (1-b*rho) * shift' -
+       *          factor * shift * (gamma - 1) * b * [1, 0, 0]^T
        *
-       *   factor = 1/(gamma+1) * (eta/(1-interpolation_b rho)^-gamma
-       *                        / (1-interpolation_b rho)^2
        */
+      const auto b = Number(eos_interpolation_b());
+      const auto pinf = Number(eos_interpolation_pinfty());
+      const auto q = Number(eos_interpolation_q());
 
       const auto rho = density(U);
       const auto m = momentum(U);
       const auto E = total_energy(U);
-      const auto rho_rho_e = rho * E - ScalarNumber(0.5) * m.norm_square();
 
-      const auto interpolation_b = Number(eos_interpolation_b());
-      const auto covolume = Number(1.) - interpolation_b * rho;
-      const auto covolume_inverse = Number(1.) / covolume;
+      const auto covolume = Number(1.) - b * rho;
+      const auto covolume_inverse = ScalarNumber(1.) / covolume;
 
-      const auto factor = ryujin::pow(eta * covolume_inverse, -gamma_min) *
-                          fixed_power<2>(covolume_inverse) /
-                          (gamma_min + Number(1.));
+      const auto shift = rho * E - ScalarNumber(0.5) * m.norm_square() -
+                         rho * rho * q - rho * pinf * covolume;
+
+      constexpr auto eps = std::numeric_limits<ScalarNumber>::epsilon();
+      const auto regularization = m.norm() * eps;
+
+      auto factor = ryujin::pow(
+          std::max(regularization, eta * covolume_inverse), -gamma_min);
+      factor *= fixed_power<2>(covolume_inverse) / (gamma_min + Number(1.));
 
       state_type result;
 
-      result[0] = factor * (covolume * E - (gamma_min - Number(1.)) *
-                                               rho_rho_e * interpolation_b);
+      const auto first_term = E - ScalarNumber(2.) * rho * q -
+                              pinf * (Number(1.) - ScalarNumber(2.) * b * rho);
+      const auto second_term = -(gamma_min - Number(1.)) * shift * b;
+
+      result[0] = factor * (covolume * first_term + second_term);
       for (unsigned int i = 0; i < dim; ++i)
         result[1 + i] = -factor * covolume * m[i];
       result[dim + 1] = factor * covolume * rho;
@@ -1117,12 +1199,17 @@ namespace ryujin
     HyperbolicSystemView<dim, Number>::surrogate_gamma(const state_type &U,
                                                        const Number &p) const
     {
+      const auto b = Number(eos_interpolation_b());
+      const auto pinf = Number(eos_interpolation_pinfty());
+      const auto q = Number(eos_interpolation_q());
+
       const auto rho = density(U);
       const auto rho_e = internal_energy(U);
-      const auto interpolation_b = Number(eos_interpolation_b());
-      const auto covolume = Number(1.) - interpolation_b * rho;
+      const auto covolume = Number(1.) - b * rho;
 
-      return Number(1.) + p * covolume / rho_e;
+      const auto numerator = (p + pinf) * covolume;
+      const auto denominator = rho_e - rho * q - covolume * pinf;
+      return Number(1.) + safe_division(numerator, denominator);
     }
 
 
@@ -1131,12 +1218,37 @@ namespace ryujin
     HyperbolicSystemView<dim, Number>::surrogate_pressure(
         const state_type &U, const Number &gamma) const
     {
+      const auto b = Number(eos_interpolation_b());
+      const auto pinf = Number(eos_interpolation_pinfty());
+      const auto q = Number(eos_interpolation_q());
+
       const auto rho = density(U);
       const auto rho_e = internal_energy(U);
-      const auto interpolation_b = Number(eos_interpolation_b());
-      const auto covolume = Number(1.) - interpolation_b * rho;
+      const auto covolume = Number(1.) - b * rho;
 
-      return (gamma - Number(1.)) * rho_e / covolume;
+      return positive_part(gamma - Number(1.)) *
+                 safe_division(rho_e - rho * q, covolume) -
+             gamma * pinf;
+    }
+
+
+    template <int dim, typename Number>
+    DEAL_II_ALWAYS_INLINE inline Number
+    HyperbolicSystemView<dim, Number>::surrogate_speed_of_sound(
+        const state_type &U, const Number &gamma) const
+    {
+      const auto b = Number(eos_interpolation_b());
+      const auto pinf = Number(eos_interpolation_pinfty());
+      const auto q = Number(eos_interpolation_q());
+
+      const auto rho = density(U);
+      const auto rho_e = internal_energy(U);
+      const auto covolume = Number(1.) - b * rho;
+
+      auto radicand =
+          (rho_e - rho * q - pinf * covolume) / (covolume * covolume * rho);
+      radicand *= gamma * (gamma - 1.);
+      return std::sqrt(positive_part(radicand));
     }
 
 
@@ -1144,21 +1256,28 @@ namespace ryujin
     DEAL_II_ALWAYS_INLINE inline bool
     HyperbolicSystemView<dim, Number>::is_admissible(const state_type &U) const
     {
+      const auto b = Number(eos_interpolation_b());
+      const auto pinf = Number(eos_interpolation_pinfty());
+      const auto q = Number(eos_interpolation_q());
+
       const auto rho = density(U);
-      const auto e = internal_energy(U);
+      const auto rho_e = internal_energy(U);
+      const auto covolume = Number(1.) - b * rho;
+
+      const auto shift = rho_e - rho * q - pinf * covolume;
 
       constexpr auto gt = dealii::SIMDComparison::greater_than;
       using T = Number;
       const auto test =
           dealii::compare_and_apply_mask<gt>(rho, T(0.), T(0.), T(-1.)) + //
-          dealii::compare_and_apply_mask<gt>(e, T(0.), T(0.), T(-1.));
+          dealii::compare_and_apply_mask<gt>(shift, T(0.), T(0.), T(-1.));
 
 #ifdef DEBUG_OUTPUT
       if (!(test == Number(0.))) {
         std::cout << std::fixed << std::setprecision(16);
         std::cout << "Bounds violation: Negative state [rho, e] detected!\n";
-        std::cout << "\t\trho: " << rho << "\n";
-        std::cout << "\t\tint: " << e << "\n";
+        std::cout << "\t\trho:           " << rho << "\n";
+        std::cout << "\t\tint (shifted): " << shift << "\n";
       }
 #endif
 
@@ -1171,69 +1290,149 @@ namespace ryujin
     DEAL_II_ALWAYS_INLINE inline auto
     HyperbolicSystemView<dim, Number>::prescribe_riemann_characteristic(
         const state_type &U,
+        const Number &p,
         const state_type &U_bar,
+        const Number &p_bar,
         const dealii::Tensor<1, dim, Number> &normal) const -> state_type
     {
-      __builtin_trap(); // untested and likely needs to be refactored
-
       static_assert(component == 1 || component == 2,
                     "component has to be 1 or 2");
+
+      const auto b = Number(eos_interpolation_b());
+      const auto pinf = Number(eos_interpolation_pinfty());
+      const auto q = Number(eos_interpolation_q());
+
+      /*
+       * The "four" Riemann characteristics are formed under the assumption
+       * of a locally isentropic flow. For this, we first transform both
+       * states into {rho, vn, vperp, gamma, a}, where we use the NASG EOS
+       * interpolation to derive a surrogate gamma and speed of sound a.
+       *
+       * See, e.g., https://arxiv.org/pdf/2004.08750, "Compressible flow in
+       * a NOble-Abel Stiffened-Gas fluid", M. I. Radulescu.
+       */
 
       const auto m = momentum(U);
       const auto rho = density(U);
       const auto vn = m * normal / rho;
 
-      const auto p = surrogate_pressure(U); // FIXME: discuss
       const auto gamma = surrogate_gamma(U, p);
-      const auto interpolation_b = ScalarNumber(eos_interpolation_b());
-      const auto x = Number(1.) - interpolation_b * rho;
-      const auto a = std::sqrt(gamma * p / (rho * x)); // local speed of sound
-
+      const auto a = surrogate_speed_of_sound(U, gamma);
+      const auto covolume = 1. - b * rho;
 
       const auto m_bar = momentum(U_bar);
       const auto rho_bar = density(U_bar);
       const auto vn_bar = m_bar * normal / rho_bar;
 
-      const auto p_bar = surrogate_pressure(U_bar); // FIXME: discuss
       const auto gamma_bar = surrogate_gamma(U_bar, p_bar);
-      const auto x_bar = Number(1.) - interpolation_b * rho_bar;
-      const auto a_bar = std::sqrt(gamma_bar * p_bar / (rho_bar * x_bar));
+      const auto a_bar = surrogate_speed_of_sound(U_bar, gamma_bar);
+      const auto covolume_bar = 1. - b * rho_bar;
 
-      /* First Riemann characteristic: v* n - 2 / (gamma - 1) * a */
+      /*
+       * Now compute the Riemann characteristics {R_1, R_2, vperp, s}:
+       *   R_1 = v * n - 2 / (gamma - 1) * a * (1 - b * rho)
+       *   R_2 = v * n + 2 / (gamma - 1) * a * (1 - b * rho)
+       *   vperp
+       *   S = (p + p_infty) / rho^gamma * (1 - b * rho)^gamma
+       *
+       * Here, we replace either R_1, or R_2 with values coming from U_bar:
+       */
 
-      const auto R_1 = component == 1
-                           ? vn_bar - 2. * a_bar / (gamma_bar - 1.) * x_bar
-                           : vn - 2. * a / (gamma - 1.) * x;
+      const auto R_1 =
+          component == 1 ? vn_bar - 2. * a_bar / (gamma_bar - 1.) * covolume_bar
+                         : vn - 2. * a / (gamma - 1.) * covolume;
 
-      /* Second Riemann characteristic: v* n + 2 / (gamma - 1) * a */
+      const auto R_2 =
+          component == 2 ? vn_bar + 2. * a_bar / (gamma_bar - 1.) * covolume_bar
+                         : vn + 2. * a / (gamma - 1.) * covolume;
 
-      const auto R_2 = component == 2
-                           ? vn_bar + 2. * a_bar / (gamma_bar - 1.) * x_bar
-                           : vn + 2. * a / (gamma - 1.) * x;
+      /*
+       * Note that we are really hoping for the best here... We require
+       * that R_2 >= R_1 so that we can extract a valid sound speed...
+       */
 
-      const auto s = p / ryujin::pow(rho, gamma) * ryujin::pow(x, gamma);
+      Assert(
+          R_2 >= R_1,
+          dealii::ExcMessage("Encountered R_2 < R_1 in dynamic boundary value "
+                             "enforcement. This implies that the interpolation "
+                             "with Riemann characteristics failed."));
 
       const auto vperp = m / rho - vn * normal;
 
-      const auto vn_new = 0.5 * (R_1 + R_2);
+      const auto S = (p + pinf) * ryujin::pow(Number(1.) / rho - b, gamma);
 
-      auto rho_new =
-          1. / (gamma * s) * ryujin::pow((gamma - 1.) / 4. * (R_2 - R_1), 2.);
-      rho_new =
-          1. / (ryujin::pow(rho_new, 1. / (1. - gamma)) + interpolation_b);
+      /*
+       * Now, we have to reconstruct the actual conserved state U from the
+       * Riemann characteristics R_1, R_2, vperp, and s. We first set up
+       * {vn_new, vperp_new, a_new, S} and then solve for {rho_new, p_new}
+       * with the help of the NASG EOS surrogate formulas:
+       *
+       *   S = (p + p_infty) / rho^gamma * (1 - b * rho)^gamma
+       *
+       *   a^2 = gamma * (p + p_infty) / (rho * cov)
+       *
+       *   This implies:
+       *
+       *   a^2 / (gamma * S) = rho^{gamma - 1} / (1 - b * rho)^{1 + gamma}
+       */
 
-      const auto x_new = 1. - interpolation_b * rho_new;
+      const auto vn_new = Number(0.5) * (R_1 + R_2);
 
-      const auto p_new =
-          s * std::pow(rho_new, gamma) / ryujin::pow(x_new, gamma);
+      /*
+       * Technically, we would need to solve for rho subject to a number of
+       * nonlinear relationships:
+       *
+       *   a   = (gamma - 1) * (R_2 - R_1) / (4. * (1 - b * rho))
+       *
+       *   a^2 / (gamma * S) = rho^{gamma - 1} / (1 - b * rho)^{gamma + 1}
+       *
+       * This seems to be a bit expensive for the fact that our dynamic
+       * boundary conditions are already terribly heuristic...
+       *
+       * So instead, we rewrite this system as:
+       *
+       *   a * (1 - b * rho) = (gamma - 1) * (R_2 - R_1) / 4.
+       *
+       *   a^2 / (gamma * S) (1 - b * rho)^2
+       *                           = (rho / (1 - b * rho))^{gamma - 1}
+       *
+       * And compute the terms on the left simply with the old covolume and
+       * solving an easier easier nonlinear equation for the density. The
+       * resulting system reads:
+       *
+       *   a = (gamma - 1) * (R_2 - R_1) / (4. * (1 - b * rho_old))
+       *   A = {a^2 / (gamma * S) (1 - b * rho_old)^{2 gamma}}^{1/(gamma - 1)}
+       *
+       *   rho = A / (1 + b * A)
+       */
+
+      const auto a_new_square =
+          ryujin::fixed_power<2>((gamma - 1.) * (R_2 - R_1) / (4. * covolume));
+
+      auto term = ryujin::pow(a_new_square / (gamma * S), 1. / (gamma - 1.));
+      if (b != ScalarNumber(0.)) {
+        term *= std::pow(covolume, 2. / (gamma - 1.));
+      }
+
+      const auto rho_new = term / (1. + b * term);
+
+      const auto covolume_new = (1. - b * rho_new);
+      const auto p_new = a_new_square / gamma * rho_new * covolume_new - pinf;
+
+      /*
+       * And translate back into conserved quantities:
+       */
+
+      const auto rho_e_new =
+          rho_new * q + (p_new + gamma * pinf) * covolume_new / (gamma - 1.);
 
       state_type U_new;
       U_new[0] = rho_new;
       for (unsigned int d = 0; d < dim; ++d) {
         U_new[1 + d] = rho_new * (vn_new * normal + vperp)[d];
       }
-      U_new[1 + dim] = p_new / (gamma - 1.) +
-                       0.5 * rho_new * (vn_new * vn_new + vperp.norm_square());
+      U_new[1 + dim] =
+          rho_e_new + 0.5 * rho_new * (vn_new * vn_new + vperp.norm_square());
 
       return U_new;
     }
@@ -1253,6 +1452,12 @@ namespace ryujin
       if (id == Boundary::dirichlet) {
         result = get_dirichlet_data();
 
+      } else if (id == Boundary::dirichlet_momentum) {
+        /* Only enforce Dirichlet conditions on the momentum: */
+        auto m_dirichlet = momentum(get_dirichlet_data());
+        for (unsigned int k = 0; k < dim; ++k)
+          result[k + 1] = m_dirichlet[k];
+
       } else if (id == Boundary::slip) {
         auto m = momentum(U);
         m -= 1. * (m * normal) * normal;
@@ -1264,8 +1469,6 @@ namespace ryujin
           result[k + 1] = Number(0.);
 
       } else if (id == Boundary::dynamic) {
-        __builtin_trap(); // untested and likely needs to be refactored
-#if 0
         /*
          * On dynamic boundary conditions, we distinguish four cases:
          *
@@ -1280,7 +1483,16 @@ namespace ryujin
          */
         const auto m = momentum(U);
         const auto rho = density(U);
-        const auto a = speed_of_sound(U);
+        const auto rho_e = internal_energy(U);
+
+        /*
+         * We do not have precomputed values available. Thus, simply query
+         * the pressure oracle and compute a surrogate speed of sound from
+         * there:
+         */
+        const auto p = eos_pressure(rho, rho_e / rho);
+        const auto gamma = surrogate_gamma(U, p);
+        const auto a = surrogate_speed_of_sound(U, gamma);
         const auto vn = m * normal / rho;
 
         /* Supersonic inflow: */
@@ -1291,17 +1503,30 @@ namespace ryujin
         /* Subsonic inflow: */
         if (vn >= -a && vn <= 0.) {
           const auto U_dirichlet = get_dirichlet_data();
-          result = prescribe_riemann_characteristic<2>(U_dirichlet, U, normal);
+          const auto rho_dirichlet = density(U_dirichlet);
+          const auto rho_e_dirichlet = internal_energy(U_dirichlet);
+          const auto p_dirichlet =
+              eos_pressure(rho_dirichlet, rho_e_dirichlet / rho_dirichlet);
+
+          result = prescribe_riemann_characteristic<2>(
+              U_dirichlet, p_dirichlet, U, p, normal);
         }
 
         /* Subsonic outflow: */
         if (vn > 0. && vn <= a) {
           const auto U_dirichlet = get_dirichlet_data();
-          result = prescribe_riemann_characteristic<1>(U, U_dirichlet, normal);
-        }
+          const auto rho_dirichlet = density(U_dirichlet);
+          const auto rho_e_dirichlet = internal_energy(U_dirichlet);
+          const auto p_dirichlet =
+              eos_pressure(rho_dirichlet, rho_e_dirichlet / rho_dirichlet);
 
+          result = prescribe_riemann_characteristic<1>(
+              U, p, U_dirichlet, p_dirichlet, normal);
+        }
         /* Supersonic outflow: do nothing, i.e., keep U as is */
-#endif
+
+      } else {
+        AssertThrow(false, dealii::ExcNotImplemented());
       }
 
       return result;

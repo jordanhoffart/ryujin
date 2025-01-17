@@ -1,0 +1,78 @@
+##
+#
+# Euler AEOS benchmark
+#
+# A 1D benchmark configuration consisting of two "strong rarefaction waves". See section  "Strong rarefaction waves" in [1] for details.
+#
+# This configuration uses an explicit ERK(3, 3, 1) timestepping. Expected
+# results are reported in verification-nasg_smooth_wave-1d-erk33-l9.output.
+# If used with the `prm/create_convergence_tables` script, the output of the prm file should give 3rd order accuracy in the L^1 norm.
+#
+# [1] Nearly-incompressible flow: The Tammann equation of state. http://www.clawpack.org/riemann_book/html/Euler_Tammann.html 
+##
+subsection A - TimeLoop
+  set basename                      = nasg_smooth_wave_1d-erk33.l9
+  set enable compute error          = true
+  set error normalize               = true
+  set error quantities              = rho, m, E
+
+  set enforce final time            = true
+  set final time                    = 0.6
+  set timer granularity             = 0.6
+
+  set terminal update interval      = 0
+end
+
+subsection B - Equation
+  set dimension                     = 1
+  set equation                      = euler aeos
+  set equation of state             = noble abel stiffened gas
+  set compute strict bounds         = true
+
+  subsection noble abel stiffened gas
+    set gamma                              = 1.4
+    set gas constant R                     = 287.053
+    set covolume b                         = 0.01
+    set reference specific internal energy = 0
+    set reference pressure                 = 1
+  end
+end
+
+subsection C - Discretization
+  set geometry            = rectangular domain
+  set mesh refinement     = 9
+
+  subsection rectangular domain
+    set boundary condition left  = dirichlet
+    set boundary condition right = dirichlet
+    set position bottom left     = 0
+    set position top right       = 1
+  end
+end
+
+subsection E - InitialValues
+  set configuration = smooth wave
+  set position      = 0
+
+  subsection smooth wave
+    set mach number        = 1
+    set reference density  = 1
+    set reference pressure = -0.5
+  end
+end
+
+subsection F - HyperbolicModule
+  subsection limiter
+    set iterations            = 2
+    set newton max iterations = 2
+    set newton tolerance      = 1e-10
+    set relaxation factor     = 1
+  end
+end
+
+subsection H - TimeIntegrator
+  set cfl max               = 0.50
+  set cfl min               = 0.50
+  set cfl recovery strategy = none
+  set time stepping scheme  = erk 33
+end

@@ -9,6 +9,7 @@
 
 #include "convenience_macros.h"
 #include "hyperbolic_module.h"
+#include "mpi_ensemble.h"
 #include "offline_data.h"
 #include "parabolic_module.h"
 #include "patterns_conversion.h"
@@ -265,7 +266,7 @@ namespace ryujin
      * Constructor.
      */
     TimeIntegrator(
-        const MPI_Comm &mpi_communicator,
+        const MPIEnsemble &mpi_ensemble,
         const OfflineData<dim, Number> &offline_data,
         const HyperbolicModule<Description, dim, Number> &hyperbolic_module,
         const ParabolicModule<Description, dim, Number> &parabolic_module,
@@ -454,7 +455,7 @@ namespace ryujin
      */
     //@{
 
-    const MPI_Comm &mpi_communicator_;
+    const MPIEnsemble &mpi_ensemble_;
 
     dealii::SmartPointer<const OfflineData<dim, Number>> offline_data_;
     dealii::SmartPointer<const HyperbolicModule<Description, dim, Number>>

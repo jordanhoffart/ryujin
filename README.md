@@ -131,6 +131,7 @@ Contributors
  - Jerett Cherry ([@jerret-cc](https://github.com/jerett-cc)), Colorado State University
  - Bennett Clayton ([@bgclayto](https://github.com/bgclayto))
  - Seth Gerberding ([@Gerbeset](https://github.com/Gerbeset)), Texas A&M University, TX, USA
+ - Jake Harmon ([@harmonj](https://github.com/harmonj)), Los Alamos National Laboratory, USA
  - David Pecoraro ([@ChrisPec27](https://github.com/ChrisPec27)), Texas A&M University, TX, USA
  - Madison Sheridan ([@Helblindi](https://github.com/Helblindi)), Texas A&M University, TX, USA
  - Gregory Christian ([@gregorychristian](https://github.com/gregorychristian), Imperial College London, UK

@@ -32,7 +32,7 @@ namespace ryujin
 
     template <typename Description, int dim, typename Number>
     ParabolicSolver<Description, dim, Number>::ParabolicSolver(
-        const MPI_Comm &mpi_communicator,
+        const MPIEnsemble &mpi_ensemble,
         std::map<std::string, dealii::Timer> &computing_timer,
         const HyperbolicSystem &hyperbolic_system,
         const ParabolicSystem &parabolic_system,
@@ -40,7 +40,7 @@ namespace ryujin
         const InitialValues<Description, dim, Number> &initial_values,
         const std::string &subsection /*= "ParabolicSolver"*/)
         : ParameterAcceptor(subsection)
-        , mpi_communicator_(mpi_communicator)
+        , mpi_ensemble_(mpi_ensemble)
         , computing_timer_(computing_timer)
         , hyperbolic_system_(&hyperbolic_system)
         , parabolic_system_(&parabolic_system)
@@ -429,7 +429,9 @@ namespace ryujin
         // .begin() and .end() denote the locally owned index range:
         e_min_old =
             *std::min_element(internal_energy_.begin(), internal_energy_.end());
-        e_min_old = Utilities::MPI::min(e_min_old, mpi_communicator_);
+
+        e_min_old = Utilities::MPI::min(e_min_old,
+                                        mpi_ensemble_.ensemble_communicator());
 
         // FIXME: create a meaningful relaxation based on global mesh size min.
         constexpr Number eps = std::numeric_limits<Number>::epsilon();
@@ -764,7 +766,8 @@ namespace ryujin
           // .begin() and .end() denote the locally owned index range:
           auto e_min_new = *std::min_element(internal_energy_.begin(),
                                              internal_energy_.end());
-          e_min_new = Utilities::MPI::min(e_min_new, mpi_communicator_);
+          e_min_new = Utilities::MPI::min(
+              e_min_new, mpi_ensemble_.ensemble_communicator());
 
           if (e_min_new < e_min_old) {
 #ifdef DEBUG_OUTPUT
@@ -834,6 +837,22 @@ namespace ryujin
       }
 
       CALLGRIND_STOP_INSTRUMENTATION;
+
+      {
+        Scope scope(computing_timer_,
+                    "time step [H] _ - synchronization barriers");
+
+        /*
+         * Synchronize whether we have to restart the time step. Even though
+         * the restart condition itself only affects the local ensemble we
+         * nevertheless need to synchronize the boolean in case we perform
+         * synchronized global time steps. (Otherwise different ensembles
+         * might end up with a different time step.)
+         */
+        restart_needed.store(Utilities::MPI::logical_or(
+            restart_needed.load(),
+            mpi_ensemble_.synchronization_communicator()));
+      }
 
       if (restart_needed) {
         switch (id_violation_strategy) {

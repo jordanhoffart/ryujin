@@ -21,6 +21,7 @@ namespace ryujin
   {
   public:
     using HyperbolicSystem = typename Description::HyperbolicSystem;
+    using ParabolicSystem = typename Description::ParabolicSystem;
 
     using View =
         typename Description::template HyperbolicSystemView<dim, Number>;
@@ -31,6 +32,7 @@ namespace ryujin
     static void
     populate_initial_state_list(initial_state_list_type &initial_state_list,
                                 const HyperbolicSystem &h,
+                                const ParabolicSystem & /*p*/,
                                 const std::string &s)
     {
       ShallowWaterInitialStates::

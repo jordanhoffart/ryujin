@@ -11,6 +11,7 @@
 
 #include <convenience_macros.h>
 #include <initial_values.h>
+#include <mpi_ensemble.h>
 #include <offline_data.h>
 #include <simd.h>
 #include <sparse_matrix_simd.h>
@@ -147,7 +148,7 @@ namespace ryujin
        * Constructor.
        */
       ParabolicSolver(
-          const MPI_Comm &mpi_communicator,
+          const MPIEnsemble &mpi_ensemble,
           std::map<std::string, dealii::Timer> &computing_timer,
           const HyperbolicSystem &hyperbolic_system,
           const ParabolicSystem &parabolic_system,
@@ -233,7 +234,7 @@ namespace ryujin
       static constexpr unsigned int order_fe = 1;
       static constexpr unsigned int order_quad = 2;
 
-      const MPI_Comm &mpi_communicator_;
+      const MPIEnsemble &mpi_ensemble_;
       std::map<std::string, dealii::Timer> &computing_timer_;
 
       dealii::SmartPointer<const HyperbolicSystem> hyperbolic_system_;

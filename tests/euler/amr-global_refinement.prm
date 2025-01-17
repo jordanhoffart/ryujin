@@ -51,8 +51,8 @@ end
 
 subsection I - MeshAdaptor
   set adaptation strategy           = global refinement
-  set time point selection strategy = fixed adaptation time points
+  set time point selection strategy = fixed time points
   subsection time point selection strategies
-    set adaptation timepoints = 1.0, 1.5
+    set fixed time points = 1.0, 1.5
   end
 end

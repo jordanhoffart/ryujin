@@ -9,6 +9,7 @@
 
 #include "convenience_macros.h"
 #include "geometry.h"
+#include "mpi_ensemble.h"
 #include "patterns_conversion.h"
 
 #include <deal.II/base/parameter_acceptor.h>
@@ -42,6 +43,9 @@ namespace ryujin
    * Boundary::dirichlet face neighboring a Boundary::no_slip face have to
    * ensure that they prescribe a state compatible with the no slip
    * condition, etc.
+   *
+   * @note Data structures in OfflineData are initialized with the ensemble
+   * subrange communicator stored in MPIEnsemble.
    *
    * @ingroup Mesh
    */
@@ -221,7 +225,7 @@ namespace ryujin
     /**
      * Constructor.
      */
-    Discretization(const MPI_Comm &mpi_communicator,
+    Discretization(const MPIEnsemble &mpi_ensemble,
                    const std::string &subsection = "/Discretization");
 
     /**
@@ -316,7 +320,7 @@ namespace ryujin
     ACCESSOR_READ_ONLY(face_nodal_quadrature)
 
   protected:
-    const MPI_Comm &mpi_communicator_;
+    const MPIEnsemble &mpi_ensemble_;
 
     std::unique_ptr<Triangulation> triangulation_;
     std::unique_ptr<const dealii::Mapping<dim>> mapping_;

@@ -13,7 +13,7 @@ namespace ryujin
 
   template <typename Description, int dim, typename Number>
   ParabolicModule<Description, dim, Number>::ParabolicModule(
-      const MPI_Comm &mpi_communicator,
+      const MPIEnsemble &mpi_ensemble,
       std::map<std::string, dealii::Timer> &computing_timer,
       const OfflineData<dim, Number> &offline_data,
       const HyperbolicSystem &hyperbolic_system,
@@ -22,7 +22,7 @@ namespace ryujin
       const std::string &subsection /*= "ParabolicModule"*/)
       : ParameterAcceptor(subsection)
       , id_violation_strategy_(IDViolationStrategy::warn)
-      , parabolic_solver_(mpi_communicator,
+      , parabolic_solver_(mpi_ensemble,
                           computing_timer,
                           hyperbolic_system,
                           parabolic_system,

@@ -54,10 +54,12 @@ namespace ryujin
         this->add_parameter(
             "reference pressure", pinf_, "The reference pressure p infinity");
 
-        /* Update the interpolation_b_ parameter on parameter read in: */
-        ParameterAcceptor::parse_parameters_call_back.connect(
-            [this] { this->interpolation_b_ = b_; });
-        this->interpolation_b_ = b_;
+        /* Update the EOS interpolation parameters on parameter read in: */
+        ParameterAcceptor::parse_parameters_call_back.connect([this] {
+          this->interpolation_b_ = b_;
+          this->interpolation_pinfty_ = pinf_;
+          this->interpolation_q_ = q_;
+        });
       }
 
       /**
@@ -107,9 +109,10 @@ namespace ryujin
       double speed_of_sound(double rho, double e) const final
       {
         const auto covolume = 1. - b_ * rho;
-        auto numerator = (rho * (e - q_) - pinf_ * covolume) / rho;
-        numerator *= gamma_ * (gamma_ - 1.);
-        return std::sqrt(numerator) / covolume;
+        auto radicand =
+            (rho * (e - q_) - pinf_ * covolume) / (covolume * covolume * rho);
+        radicand *= gamma_ * (gamma_ - 1.);
+        return std::sqrt(radicand);
       }
 
     private:

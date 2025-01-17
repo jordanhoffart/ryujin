@@ -58,6 +58,12 @@ void set_thread_limit(const MPI_Comm &mpi_communicator [[maybe_unused]])
  */
 int main(int argc, char *argv[])
 {
+  /*
+   * Entry point into the ryujin executable. We first determine what
+   * parameter file to use and then hand off everything to an
+   * EquationDispatch instance.
+   */
+
   flush_denormals_to_zero();
 
   LSAN_DISABLE;

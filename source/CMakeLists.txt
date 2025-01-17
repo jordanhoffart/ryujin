@@ -15,6 +15,7 @@ configure_file(
 set(COMMON_SOURCE_FILES
   discretization.cc
   equation_dispatch.cc
+  mpi_ensemble.cc
   multicomponent_vector.cc
   offline_data.cc
   simd.cc
@@ -47,6 +48,7 @@ set(DEPENDENT_SOURCE_FILES
   parabolic_module.cc
   postprocessor.cc
   quantities.cc
+  solution_transfer.cc
   time_integrator.cc
   time_loop.cc
   vtu_output.cc

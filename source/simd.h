@@ -111,7 +111,7 @@ namespace ryujin
   template <typename Number>
   inline DEAL_II_ALWAYS_INLINE Number positive_part(const Number number)
   {
-    return Number(0.5) * (std::abs(number) + number);
+    return std::max(Number(0.), number);
   }
 
 
@@ -123,7 +123,7 @@ namespace ryujin
   template <typename Number>
   inline DEAL_II_ALWAYS_INLINE Number negative_part(const Number number)
   {
-    return Number(0.5) * (std::abs(number) - number);
+    return -std::min(Number(0.), number);
   }
 
 

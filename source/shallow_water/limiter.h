@@ -28,7 +28,7 @@ namespace ryujin
         add_parameter(
             "iterations", iterations_, "Number of limiter iterations");
 
-        if constexpr (std::is_same<ScalarNumber, double>::value)
+        if constexpr (std::is_same_v<ScalarNumber, double>)
           newton_tolerance_ = 1.e-10;
         else
           newton_tolerance_ = 1.e-4;
@@ -47,16 +47,6 @@ namespace ryujin
                       relaxation_factor_,
                       "Factor for scaling the relaxation window with r_i = "
                       "factor * (m_i/|Omega|)^(1.5/d).");
-
-        limit_on_kinetic_energy_ = false;
-        add_parameter("limit on kinetic energy",
-                      limit_on_kinetic_energy_,
-                      "Limit on kinetic energy");
-
-        limit_on_square_velocity_ = true;
-        add_parameter("limit on square velocity",
-                      limit_on_square_velocity_,
-                      "Limit on square velocity");
       }
 
       ACCESSOR_READ_ONLY(iterations);
@@ -64,17 +54,11 @@ namespace ryujin
       ACCESSOR_READ_ONLY(newton_max_iterations);
       ACCESSOR_READ_ONLY(relaxation_factor);
 
-      ACCESSOR_READ_ONLY(limit_on_kinetic_energy);
-      ACCESSOR_READ_ONLY(limit_on_square_velocity);
-
     private:
       unsigned int iterations_;
       ScalarNumber newton_tolerance_;
       unsigned int newton_max_iterations_;
       ScalarNumber relaxation_factor_;
-
-      bool limit_on_kinetic_energy_;
-      bool limit_on_square_velocity_;
     };
 
 
@@ -110,28 +94,13 @@ namespace ryujin
 
       //@}
       /**
-       * @name Stencil-based computation of bounds
-       *
-       * Intended usage:
-       * ```
-       * Limiter<dim, Number> limiter;
-       * for (unsigned int i = n_internal; i < n_owned; ++i) {
-       *   // ...
-       *   limiter.reset(i, U_i, flux_i);
-       *   for (unsigned int col_idx = 1; col_idx < row_length; ++col_idx) {
-       *     // ...
-       *     limiter.accumulate(js, U_j, flux_j, scaled_c_ij, affine_shift);
-       *   }
-       *   limiter.bounds(hd_i);
-       * }
-       * ```
+       * @name Computation and manipulation of bounds
        */
       //@{
-
       /**
        * The number of stored entries in the bounds array.
        */
-      static constexpr unsigned int n_bounds = 5;
+      static constexpr unsigned int n_bounds = 3;
 
       /**
        * Array type used to store accumulated bounds.
@@ -149,6 +118,41 @@ namespace ryujin
           , precomputed_values(precomputed_values)
       {
       }
+
+      /**
+       * Given a state @p U_i and an index @p i return "strict" bounds,
+       * i.e., a minimal convex set containing the state.
+       */
+      Bounds bounds_from_state(const unsigned int i,
+                               const state_type &U_i) const;
+
+      /**
+       * Given two bounds bounds_left, bounds_right, this function computes
+       * a larger, combined set of bounds that this is a (convex) superset
+       * of the two.
+       */
+      Bounds combine_bounds(const Bounds &bounds_left,
+                            const Bounds &bounds_right) const;
+
+      //@}
+      /**
+       * @name Stencil-based computation of bounds
+       *
+       * Intended usage:
+       * ```
+       * Limiter<dim, Number> limiter;
+       * for (unsigned int i = n_internal; i < n_owned; ++i) {
+       *   // ...
+       *   limiter.reset(i, U_i, flux_i);
+       *   for (unsigned int col_idx = 1; col_idx < row_length; ++col_idx) {
+       *     // ...
+       *     limiter.accumulate(js, U_j, flux_j, scaled_c_ij, affine_shift);
+       *   }
+       *   limiter.bounds(hd_i);
+       * }
+       * ```
+       */
+      //@{
 
       /**
        * Reset temporary storage
@@ -172,14 +176,6 @@ namespace ryujin
        */
       Bounds bounds(const Number hd_i) const;
 
-      /**
-       * Given two bounds bounds_left, bounds_right, this function computes
-       * a larger, combined Bounds set that this is a (convex) superset of
-       * the two.
-       */
-      static Bounds combine_bounds(const Bounds &bounds_left,
-                                   const Bounds &bounds_right);
-
       //*}
       /** @name Convex limiter */
       //@{
@@ -195,23 +191,6 @@ namespace ryujin
                                      const state_type &P,
                                      const Number t_min = Number(0.),
                                      const Number t_max = Number(1.));
-
-      //*}
-      /**
-       * @name Verify invariant domain property
-       */
-      //@{
-
-      /**
-       * Returns whether the state @p U is located in the invariant domain
-       * described by @p bounds. If @p U is a vectorized state then the
-       * function returns true if all vectorized values are located in the
-       * invariant domain.
-       */
-      static bool
-      is_in_invariant_domain(const HyperbolicSystem & /*hyperbolic_system*/,
-                             const Bounds & /*bounds*/,
-                             const state_type & /*U*/);
 
     private:
       //@}
@@ -229,7 +208,6 @@ namespace ryujin
       /* for relaxation */
 
       Number h_relaxation_numerator;
-      Number kin_relaxation_numerator;
       Number v2_relaxation_numerator;
       Number relaxation_denominator;
 
@@ -245,6 +223,34 @@ namespace ryujin
 
 
     template <int dim, typename Number>
+    DEAL_II_ALWAYS_INLINE inline auto Limiter<dim, Number>::bounds_from_state(
+        const unsigned int /*i*/, const state_type &U_i) const -> Bounds
+    {
+      const auto view = hyperbolic_system.view<dim, Number>();
+      const auto h_i = view.water_depth(U_i);
+      const auto v_i =
+          view.momentum(U_i) * view.inverse_water_depth_mollified(U_i);
+      const auto v2_i = v_i.norm_square();
+
+      return {/*h_min*/ h_i, /*h_max*/ h_i, /*v2_max*/ v2_i};
+    }
+
+
+    template <int dim, typename Number>
+    DEAL_II_ALWAYS_INLINE inline auto
+    Limiter<dim, Number>::combine_bounds(const Bounds &bounds_l,
+                                         const Bounds &bounds_r) const -> Bounds
+    {
+      const auto &[h_min_l, h_max_l, v2_max_l] = bounds_l;
+      const auto &[h_min_r, h_max_r, v2_max_r] = bounds_r;
+
+      return {std::min(h_min_l, h_min_r),
+              std::max(h_max_l, h_max_r),
+              std::max(v2_max_l, v2_max_r)};
+    }
+
+
+    template <int dim, typename Number>
     DEAL_II_ALWAYS_INLINE inline void
     Limiter<dim, Number>::reset(unsigned int /*i*/,
                                 const state_type &new_U_i,
@@ -252,16 +258,13 @@ namespace ryujin
     {
       U_i = new_U_i;
 
-      auto &[h_min, h_max, h_small, kin_max, v2_max] = bounds_;
+      auto &[h_min, h_max, v2_max] = bounds_;
 
       h_min = Number(std::numeric_limits<ScalarNumber>::max());
       h_max = Number(0.);
-      h_small = Number(0.);
-      kin_max = Number(0.);
       v2_max = Number(0.);
 
       h_relaxation_numerator = Number(0.);
-      kin_relaxation_numerator = Number(0.);
       v2_relaxation_numerator = Number(0.);
       relaxation_denominator = Number(0.);
     }
@@ -291,14 +294,11 @@ namespace ryujin
 
       /* Bounds: */
 
-      auto &[h_min, h_max, h_small, kin_max, v2_max] = bounds_;
+      auto &[h_min, h_max, v2_max] = bounds_;
 
       const auto h_bar_ij = view.water_depth(U_ij_bar);
       h_min = std::min(h_min, h_bar_ij);
       h_max = std::max(h_max, h_bar_ij);
-
-      const auto kin_bar_ij = view.kinetic_energy(U_ij_bar);
-      kin_max = std::max(kin_max, kin_bar_ij);
 
       const auto v_bar_ij = view.momentum(U_ij_bar) *
                             view.inverse_water_depth_mollified(U_ij_bar);
@@ -316,10 +316,6 @@ namespace ryujin
       const auto h_j = view.water_depth(U_j);
       h_relaxation_numerator += beta_ij * (h_i + h_j);
 
-      const auto kin_i = view.kinetic_energy(U_i);
-      const auto kin_j = view.kinetic_energy(U_j);
-      kin_relaxation_numerator += beta_ij * (kin_i + kin_j);
-
       const auto vel_i =
           view.momentum(U_i) * view.inverse_water_depth_mollified(U_i);
       const auto vel_j =
@@ -333,10 +329,8 @@ namespace ryujin
     DEAL_II_ALWAYS_INLINE inline auto
     Limiter<dim, Number>::bounds(const Number hd_i) const -> Bounds
     {
-      const auto view = hyperbolic_system.view<dim, Number>();
-
       auto relaxed_bounds = bounds_;
-      auto &[h_min, h_max, h_small, kin_max, v2_max] = relaxed_bounds;
+      auto &[h_min, h_max, v2_max] = relaxed_bounds;
 
       /* Use r_i = factor * (m_i / |Omega|) ^ (1.5 / d): */
 
@@ -356,59 +350,13 @@ namespace ryujin
       h_min = std::max((Number(1.) - r_i) * h_min, h_min - h_relaxed);
       h_max = std::min((Number(1.) + r_i) * h_max, h_max + h_relaxed);
 
-      const Number kin_relaxed = ScalarNumber(2.) *
-                                 std::abs(kin_relaxation_numerator) /
-                                 (relaxation_denominator + Number(eps));
-
-      kin_max = std::min((Number(1.) + r_i) * kin_max, kin_max + kin_relaxed);
-
       const Number v2_relaxed = ScalarNumber(2.) *
                                 std::abs(v2_relaxation_numerator) /
                                 (relaxation_denominator + Number(eps));
 
       v2_max = std::min((Number(1.) + r_i) * v2_max, v2_max + v2_relaxed);
 
-      /* Use r_i = 0.2 * (m_i / |Omega|) ^ (1 / d): */
-
-      r_i = hd_i;
-      if constexpr (dim == 2)
-        r_i = std::sqrt(hd_i);
-      r_i *= view.dry_state_relaxation_factor();
-
-      h_small = view.reference_water_depth() * r_i;
-
       return relaxed_bounds;
     }
-
-
-    template <int dim, typename Number>
-    DEAL_II_ALWAYS_INLINE inline auto
-    Limiter<dim, Number>::combine_bounds(const Bounds &bounds_l,
-                                         const Bounds &bounds_r) -> Bounds
-    {
-      const auto &[h_min_l, h_max_l, h_small_l, k_max_l, v2_max_l] = bounds_l;
-      const auto &[h_min_r, h_max_r, h_small_r, k_max_r, v2_max_r] = bounds_r;
-
-      return {std::min(h_min_l, h_min_r),
-              std::max(h_max_l, h_max_r),
-              std::min(h_small_l, h_small_r),
-              std::max(k_max_l, h_max_r),
-              std::max(v2_max_l, v2_max_r)};
-    }
-
-
-    template <int dim, typename Number>
-    DEAL_II_ALWAYS_INLINE inline bool
-    Limiter<dim, Number>::is_in_invariant_domain(
-        const HyperbolicSystem & /*hyperbolic_system*/,
-        const Bounds & /*bounds*/,
-        const state_type & /*U*/)
-    {
-      AssertThrow(false, dealii::ExcNotImplemented());
-      __builtin_trap();
-      return true;
-    }
-
-
   } // namespace ShallowWater
 } // namespace ryujin

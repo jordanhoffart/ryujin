@@ -17,13 +17,13 @@ namespace ryujin
 {
   template <typename Description, int dim, typename Number>
   Postprocessor<Description, dim, Number>::Postprocessor(
-      const MPI_Comm &mpi_communicator,
+      const MPIEnsemble &mpi_ensemble,
       const OfflineData<dim, Number> &offline_data,
       const HyperbolicSystem &hyperbolic_system,
       const ParabolicSystem &parabolic_system,
       const std::string &subsection /*= "Postprocessor"*/)
       : ParameterAcceptor(subsection)
-      , mpi_communicator_(mpi_communicator)
+      , mpi_ensemble_(mpi_ensemble)
       , offline_data_(&offline_data)
       , hyperbolic_system_(&hyperbolic_system)
       , parabolic_system_(&parabolic_system)
@@ -240,8 +240,10 @@ namespace ryujin
           q_max = std::max(q_max, std::abs(q));
           q_min = std::min(q_min, std::abs(q));
         }
-        q_max = dealii::Utilities::MPI::max(q_max, mpi_communicator_);
-        q_min = dealii::Utilities::MPI::min(q_min, mpi_communicator_);
+        q_max = dealii::Utilities::MPI::max(
+            q_max, mpi_ensemble_.ensemble_communicator());
+        q_min = dealii::Utilities::MPI::min(
+            q_min, mpi_ensemble_.ensemble_communicator());
         Assert(q_max >= q_min, dealii::ExcInternalError());
       }
     }

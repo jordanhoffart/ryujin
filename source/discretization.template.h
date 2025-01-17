@@ -23,29 +23,11 @@ namespace ryujin
   using namespace dealii;
 
   template <int dim>
-  Discretization<dim>::Discretization(const MPI_Comm &mpi_communicator,
+  Discretization<dim>::Discretization(const MPIEnsemble &mpi_ensemble,
                                       const std::string &subsection)
       : ParameterAcceptor(subsection)
-      , mpi_communicator_(mpi_communicator)
+      , mpi_ensemble_(mpi_ensemble)
   {
-    const auto smoothing =
-        dealii::Triangulation<dim>::limit_level_difference_at_vertices;
-
-    if constexpr (have_distributed_triangulation<dim>) {
-      const auto settings =
-          Triangulation::Settings::construct_multigrid_hierarchy;
-      triangulation_ = std::make_unique<Triangulation>(
-          mpi_communicator_, smoothing, settings);
-
-    } else {
-      const auto settings = static_cast<typename Triangulation::Settings>(
-          Triangulation::partition_auto |
-          Triangulation::construct_multigrid_hierarchy);
-      /* Beware of the boolean: */
-      triangulation_ = std::make_unique<Triangulation>(
-          mpi_communicator_, smoothing, /*artificial cells*/ true, settings);
-    }
-
     /* Options: */
 
     ansatz_ = Ansatz::cg_q1;
@@ -85,8 +67,28 @@ namespace ryujin
     std::cout << "Discretization<dim>::prepare()" << std::endl;
 #endif
 
+    const auto smoothing =
+        dealii::Triangulation<dim>::limit_level_difference_at_vertices;
+
+    if constexpr (have_distributed_triangulation<dim>) {
+      const auto settings =
+          Triangulation::Settings::construct_multigrid_hierarchy;
+      triangulation_ = std::make_unique<Triangulation>(
+          mpi_ensemble_.ensemble_communicator(), smoothing, settings);
+
+    } else {
+      const auto settings = static_cast<typename Triangulation::Settings>(
+          Triangulation::partition_auto |
+          Triangulation::construct_multigrid_hierarchy);
+      /* Beware of the boolean: */
+      triangulation_ =
+          std::make_unique<Triangulation>(mpi_ensemble_.ensemble_communicator(),
+                                          smoothing,
+                                          /*artificial cells*/ true,
+                                          settings);
+    }
+
     auto &triangulation = *triangulation_;
-    triangulation.clear();
 
     {
       bool initialized = false;
@@ -103,8 +105,8 @@ namespace ryujin
                      geometry_ + "\""));
     }
 
-    if (mesh_writeout_ &&
-        dealii::Utilities::MPI::this_mpi_process(mpi_communicator_) == 0) {
+    if (mesh_writeout_ && dealii::Utilities::MPI::this_mpi_process(
+                              mpi_ensemble_.ensemble_communicator()) == 0) {
 #ifdef DEAL_II_GMSH_WITH_API
       GridOut grid_out;
       grid_out.write_msh(triangulation, base_name + "-coarse_grid.msh");

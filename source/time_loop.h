@@ -11,6 +11,8 @@
 #include "hyperbolic_module.h"
 #include "initial_values.h"
 #include "mesh_adaptor.h"
+#include "mpi_ensemble.h"
+#include "mpi_ensemble_container.h"
 #include "offline_data.h"
 #include "parabolic_module.h"
 #include "postprocessor.h"
@@ -25,7 +27,6 @@
 
 namespace ryujin
 {
-
   /**
    * The high-level time loop driving the computation.
    *
@@ -101,7 +102,8 @@ namespace ryujin
      * function writes out the state to disk using boost::archive for
      * serialization.
      *
-     * @pre the state_vector needs to be prepared.
+     * @pre the state_vector has to have been prepared prior to a call to
+     * write_checkpoint().
      */
     void write_checkpoint(const StateVector &state_vector,
                           const std::string &base_name,
@@ -152,6 +154,7 @@ namespace ryujin
     //@{
 
     std::string base_name_;
+    std::string base_name_ensemble_;
 
     std::string debug_filename_;
 
@@ -186,15 +189,16 @@ namespace ryujin
      */
     //@{
 
-    const MPI_Comm &mpi_communicator_;
+    MPIEnsemble mpi_ensemble_;
 
     std::map<std::string, dealii::Timer> computing_timer_;
 
-    HyperbolicSystem hyperbolic_system_;
-    ParabolicSystem parabolic_system_;
+    MPIEnsembleContainer<HyperbolicSystem> hyperbolic_system_;
+    MPIEnsembleContainer<ParabolicSystem> parabolic_system_;
     Discretization<dim> discretization_;
     OfflineData<dim, Number> offline_data_;
-    InitialValues<Description, dim, Number> initial_values_;
+    MPIEnsembleContainer<InitialValues<Description, dim, Number>>
+        initial_values_;
     HyperbolicModule<Description, dim, Number> hyperbolic_module_;
     ParabolicModule<Description, dim, Number> parabolic_module_;
     TimeIntegrator<Description, dim, Number> time_integrator_;
@@ -203,8 +207,7 @@ namespace ryujin
     VTUOutput<Description, dim, Number> vtu_output_;
     Quantities<Description, dim, Number> quantities_;
 
-    const unsigned int mpi_rank_;
-    const unsigned int n_mpi_processes_;
+    dealii::types::global_dof_index n_global_dofs_;
 
     std::ofstream logfile_; /* log file */
 

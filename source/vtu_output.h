@@ -7,6 +7,7 @@
 
 #include <compile_time_options.h>
 
+#include "mpi_ensemble.h"
 #include "offline_data.h"
 #include "postprocessor.h"
 
@@ -61,7 +62,7 @@ namespace ryujin
     /**
      * Constructor.
      */
-    VTUOutput(const MPI_Comm &mpi_communicator,
+    VTUOutput(const MPIEnsemble &mpi_ensemble,
               const OfflineData<dim, Number> &offline_data,
               const HyperbolicSystem &hyperbolic_system,
               const ParabolicSystem &parabolic_system,
@@ -121,7 +122,7 @@ namespace ryujin
      */
     //@{
 
-    const MPI_Comm &mpi_communicator_;
+    const MPIEnsemble &mpi_ensemble_;
 
     dealii::SmartPointer<const OfflineData<dim, Number>> offline_data_;
     dealii::SmartPointer<const HyperbolicSystem> hyperbolic_system_;

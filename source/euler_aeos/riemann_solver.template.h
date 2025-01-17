@@ -21,7 +21,8 @@ namespace ryujin
     /*
      * The RiemannSolver is a guaranteed maximal wavespeed (GMS) estimate
      * for the extended Riemann problem outlined in
-     * @cite ClaytonGuermondPopov-2022.
+     * @cite ClaytonGuermondPopov-2022. For extenstions on handling negative
+     * pressures, we follow @cite clayton2023robust (see §4.6).
      *
      * In contrast to the algorithm outlined in above reference the
      * algorithm takes a couple of shortcuts to significantly decrease the
@@ -49,7 +50,7 @@ namespace ryujin
 
     template <int dim, typename Number>
     DEAL_II_ALWAYS_INLINE inline Number
-    RiemannSolver<dim, Number>::c(const Number gamma) const
+    RiemannSolver<dim, Number>::c(const Number &gamma) const
     {
       /*
        * We implement the continuous and monotonic function c(gamma) as
@@ -93,7 +94,7 @@ namespace ryujin
 
       const Number denominator = gamma - Number(1.);
 
-      return numerator / denominator;
+      return safe_division(numerator, denominator);
     }
 
 
@@ -103,6 +104,9 @@ namespace ryujin
         const primitive_type &riemann_data_i,
         const primitive_type &riemann_data_j) const
     {
+      const auto view = hyperbolic_system.view<dim, Number>();
+      const auto pinf = view.eos_interpolation_pinfty();
+
       const auto &[rho_i, u_i, p_i, gamma_i, a_i] = riemann_data_i;
       const auto &[rho_j, u_j, p_j, gamma_j, a_j] = riemann_data_j;
       const auto alpha_i = alpha(rho_i, gamma_i, a_i);
@@ -137,9 +141,17 @@ namespace ryujin
       const Number gamma_M = std::max(gamma_i, gamma_j);
 
       const Number numerator =
-          positive_part(alpha_hat_min + alpha_max - (u_j - u_i));
+          dealii::compare_and_apply_mask<dealii::SIMDComparison::equal>(
+              p_max + pinf,
+              Number(0.),
+              Number(0.),
+              positive_part(alpha_hat_min + alpha_max - (u_j - u_i)));
 
-      const Number p_ratio = p_min / p_max;
+      /*
+       * The admissible set is p_min >= pinf. But numerically let's avoid
+       * division by zero and ensure positivity:
+       */
+      const Number p_ratio = safe_division(p_min + pinf, p_max + pinf);
 
       /*
        * Here, we use a trick: The r-factor only shows up in the formula
@@ -157,14 +169,19 @@ namespace ryujin
 
       const Number first_exponent =
           (gamma_M - Number(1.)) / (ScalarNumber(2.) * gamma_M);
-      const Number first_exponent_inverse = Number(1.) / first_exponent;
+
+      const Number first_exponent_inverse =
+          safe_division(Number(1.), first_exponent);
 
       const Number first_denom =
           alpha_hat_min * ryujin::pow(p_ratio, r_exponent - first_exponent) +
           alpha_max;
 
       const Number p_1_tilde =
-          p_max * ryujin::pow(numerator / first_denom, first_exponent_inverse);
+          (p_max + pinf) * ryujin::pow(safe_division(numerator, first_denom),
+                                       first_exponent_inverse) -
+          pinf;
+
 #ifdef DEBUG_RIEMANN_SOLVER
       std::cout << "RS p_1_tilde  = " << p_1_tilde << "\n";
 #endif
@@ -176,14 +193,18 @@ namespace ryujin
 
       const Number second_exponent =
           (gamma_m - Number(1.)) / (ScalarNumber(2.) * gamma_m);
-      const Number second_exponent_inverse = Number(1.) / second_exponent;
+
+      const Number second_exponent_inverse =
+          safe_division(Number(1.), second_exponent);
 
       Number second_denom =
           alpha_hat_min * ryujin::pow(p_ratio, -second_exponent) +
           alpha_max * ryujin::pow(p_ratio, r_exponent);
 
-      const Number p_2_tilde = p_max * ryujin::pow(numerator / second_denom,
-                                                   second_exponent_inverse);
+      const Number p_2_tilde =
+          (p_max + pinf) * ryujin::pow(safe_division(numerator, second_denom),
+                                       second_exponent_inverse) -
+          pinf;
 
 #ifdef DEBUG_RIEMANN_SOLVER
       std::cout << "RS p_2_tilde  = " << p_2_tilde << "\n";
@@ -199,6 +220,9 @@ namespace ryujin
         const primitive_type &riemann_data_i,
         const primitive_type &riemann_data_j) const
     {
+      const auto view = hyperbolic_system.view<dim, Number>();
+      const auto pinf = view.eos_interpolation_pinfty();
+
       const auto &[rho_i, u_i, p_i, gamma_i, a_i] = riemann_data_i;
       const auto &[rho_j, u_j, p_j, gamma_j, a_j] = riemann_data_j;
 
@@ -218,13 +242,21 @@ namespace ryujin
       const Number exponent_inverse = Number(1.) / exponent;
 
       const Number numerator =
-          positive_part(alpha_hat_i + alpha_hat_j - (u_j - u_i));
+          dealii::compare_and_apply_mask<dealii::SIMDComparison::equal>(
+              p_j + pinf,
+              Number(0.),
+              Number(0.),
+              positive_part(alpha_hat_i + alpha_hat_j - (u_j - u_i)));
 
       const Number denominator =
-          alpha_hat_i * ryujin::pow(p_i / p_j, -exponent) + alpha_hat_j;
+          alpha_hat_i *
+              ryujin::pow(safe_division(p_i + pinf, p_j + pinf), -exponent) +
+          alpha_hat_j;
 
       const Number p_1_tilde =
-          p_j * ryujin::pow(numerator / denominator, exponent_inverse);
+          (p_j + pinf) * ryujin::pow(safe_division(numerator, denominator),
+                                     exponent_inverse) -
+          pinf;
 
 #ifdef DEBUG_RIEMANN_SOLVER
       std::cout << "SS p_1_tilde  = " << p_1_tilde << "\n";
@@ -244,6 +276,7 @@ namespace ryujin
     {
       const auto view = hyperbolic_system.view<dim, Number>();
       const auto interpolation_b = view.eos_interpolation_b();
+      const auto pinf = view.eos_interpolation_pinfty();
 
       const auto &[rho_i, u_i, p_i, gamma_i, a_i] = riemann_data_i;
       const auto &[rho_j, u_j, p_j, gamma_j, a_j] = riemann_data_j;
@@ -254,29 +287,35 @@ namespace ryujin
        * Cost: 0x pow, 3x division, 3x sqrt
        */
 
-      const Number p_max = std::max(p_i, p_j);
+      const Number p_max = std::max(p_i, p_j) + pinf;
 
-      Number radicand_i =
-          ScalarNumber(2.) * (Number(1.) - interpolation_b * rho_i) * p_max;
-      radicand_i /= rho_i * ((gamma_i + Number(1.)) * p_max +
-                             (gamma_i - Number(1.)) * p_i);
+      const Number radicand_i = safe_division(
+          ScalarNumber(2.) * (Number(1.) - interpolation_b * rho_i) * p_max,
+          rho_i * ((gamma_i + Number(1.)) * p_max +
+                   (gamma_i - Number(1.)) * (p_i + pinf)));
 
       const Number x_i = std::sqrt(radicand_i);
 
-      Number radicand_j =
-          ScalarNumber(2.) * (Number(1.) - interpolation_b * rho_j) * p_max;
-      radicand_j /= rho_j * ((gamma_j + Number(1.)) * p_max +
-                             (gamma_j - Number(1.)) * p_j);
+      const Number radicand_j = safe_division(
+          ScalarNumber(2.) * (Number(1.) - interpolation_b * rho_j) * p_max,
+          rho_j * ((gamma_j + Number(1.)) * p_max +
+                   (gamma_j - Number(1.)) * (p_j + pinf)));
 
       const Number x_j = std::sqrt(radicand_j);
 
       const Number a = x_i + x_j;
-      const Number b = u_j - u_i;
-      const Number c = -p_i * x_i - p_j * x_j;
+      const Number b =
+          dealii::compare_and_apply_mask<dealii::SIMDComparison::equal>(
+              a, Number(0.), Number(0.), u_j - u_i);
 
-      const Number base = (-b + std::sqrt(b * b - ScalarNumber(4.) * a * c)) /
-                          (ScalarNumber(2.) * a);
-      const Number p_2_tilde = base * base;
+      const Number c = -(p_i + pinf) * x_i - (p_j + pinf) * x_j;
+
+      const Number base = safe_division(
+          std::abs(-b +
+                   std::sqrt(positive_part(b * b - ScalarNumber(4.) * a * c))),
+          std::abs(ScalarNumber(2.) * a));
+
+      const Number p_2_tilde = base * base - pinf;
 
 #ifdef DEBUG_RIEMANN_SOLVER
       std::cout << "SS p_2_tilde  = " << p_2_tilde << "\n";
@@ -291,6 +330,9 @@ namespace ryujin
         const primitive_type &riemann_data_i,
         const primitive_type &riemann_data_j) const
     {
+      const auto view = hyperbolic_system.view<dim, Number>();
+      const auto pinf = view.eos_interpolation_pinfty();
+
       const auto &[rho_i, u_i, p_i, gamma_i, a_i] = riemann_data_i;
       const auto &[rho_j, u_j, p_j, gamma_j, a_j] = riemann_data_j;
       const auto alpha_i = alpha(rho_i, gamma_i, a_i);
@@ -304,8 +346,8 @@ namespace ryujin
        * necessarily the minimum/maximum of *_i vs *_j.
        */
 
-      const Number p_min = std::min(p_i, p_j);
-      const Number p_max = std::max(p_i, p_j);
+      const Number p_min = std::min(p_i, p_j) + pinf;
+      const Number p_max = std::max(p_i, p_j) + pinf;
 
       const Number gamma_min =
           dealii::compare_and_apply_mask<dealii::SIMDComparison::less_than>(
@@ -330,7 +372,7 @@ namespace ryujin
       const Number gamma_m = std::min(gamma_i, gamma_j);
       const Number gamma_M = std::max(gamma_i, gamma_j);
 
-      const Number p_ratio = p_min / p_max;
+      const Number p_ratio = safe_division(p_min, p_max);
 
       /*
        * Here, we use a trick: The r-factor only shows up in the formula
@@ -358,8 +400,9 @@ namespace ryujin
       Number denominator = alpha_hat_min * ryujin::pow(p_ratio, -exponent) +
                            alpha_hat_max * ryujin::pow(p_ratio, r_exponent);
 
-      const Number p_tilde =
-          p_max * ryujin::pow(numerator / denominator, exponent_inverse);
+      const auto temp = safe_division(numerator, denominator);
+
+      const Number p_tilde = p_max * ryujin::pow(temp, exponent_inverse) - pinf;
 
 #ifdef DEBUG_RIEMANN_SOLVER
       std::cout << "IN p_*_tilde  = " << p_tilde << "\n";
@@ -374,26 +417,35 @@ namespace ryujin
     RiemannSolver<dim, Number>::f(const primitive_type &riemann_data,
                                   const Number p_star) const
     {
+      constexpr ScalarNumber min = std::numeric_limits<ScalarNumber>::min();
+
       const auto view = hyperbolic_system.view<dim, Number>();
       const auto interpolation_b = view.eos_interpolation_b();
+      const auto pinf = view.eos_interpolation_pinfty();
 
       const auto &[rho, u, p, gamma, a] = riemann_data;
 
       const Number one_minus_b_rho = Number(1.) - interpolation_b * rho;
+      const Number gamma_minus_one = gamma - Number(1.);
 
       const Number Az =
           ScalarNumber(2.) * one_minus_b_rho / (rho * (gamma + Number(1.)));
 
-      const Number Bz = (gamma - Number(1.)) / (gamma + Number(1.)) * p;
+      const Number Bz = gamma_minus_one / (gamma + Number(1.)) * (p + pinf);
 
-      const Number radicand = Az / (p_star + Bz);
+      const Number radicand = safe_division(Az, p_star + pinf + Bz);
 
+      /* true_value is shock case */
       const Number true_value = (p_star - p) * std::sqrt(radicand);
 
-      const auto exponent = ScalarNumber(0.5) * (gamma - Number(1.)) / gamma;
-      const Number factor = ryujin::pow(p_star / p, exponent) - Number(1.);
+      const auto exponent = ScalarNumber(0.5) * gamma_minus_one / gamma;
+
+      const Number ratio = safe_division(p_star + pinf, p + pinf);
+      const Number factor = ryujin::pow(ratio, exponent) - Number(1.);
+
+      /* false_value is rarefaction case */
       const auto false_value = ScalarNumber(2.) * a * one_minus_b_rho * factor /
-                               (gamma - Number(1.));
+                               std::max(gamma_minus_one, Number(min));
 
       return dealii::compare_and_apply_mask<
           dealii::SIMDComparison::greater_than_or_equal>(
@@ -422,23 +474,30 @@ namespace ryujin
     {
       const auto view = hyperbolic_system.view<dim, Number>();
       const auto interpolation_b = view.eos_interpolation_b();
+      const auto pinf = view.eos_interpolation_pinfty();
 
       const auto &[rho_i, u_i, p_i, gamma_i, a_i] = riemann_data_i;
       const auto &[rho_j, u_j, p_j, gamma_j, a_j] = riemann_data_j;
 
-      const Number p_max = std::max(p_i, p_j);
+      const Number p_max = std::max(p_i, p_j) + pinf;
 
       const Number radicand_inverse_i =
-          ScalarNumber(0.5) * rho_i / (Number(1.) - interpolation_b * rho_i) *
-          ((gamma_i + Number(1.)) * p_max + (gamma_i - Number(1.)) * p_i);
+          safe_division(ScalarNumber(0.5) * rho_i,
+                        Number(1.) - interpolation_b * rho_i) *
+          ((gamma_i + Number(1.)) * p_max +
+           (gamma_i - Number(1.)) * (p_i + pinf));
 
-      const Number value_i = (p_max - p_i) / std::sqrt(radicand_inverse_i);
+      const Number value_i =
+          safe_division(p_max - p_i, std::sqrt(radicand_inverse_i));
 
-      const Number radicand_jnverse_j =
-          ScalarNumber(0.5) * rho_j / (Number(1.) - interpolation_b * rho_j) *
-          ((gamma_j + Number(1.)) * p_max + (gamma_j - Number(1.)) * p_j);
+      const Number radicand_inverse_j =
+          safe_division(ScalarNumber(0.5) * rho_j,
+                        Number(1.) - interpolation_b * rho_j) *
+          ((gamma_j + Number(1.)) * p_max +
+           (gamma_j - Number(1.)) * (p_j + pinf));
 
-      const Number value_j = (p_max - p_j) / std::sqrt(radicand_jnverse_j);
+      const Number value_j =
+          safe_division(p_max - p_j, std::sqrt(radicand_inverse_j));
 
       return value_i + value_j + u_j - u_i;
     }
@@ -449,12 +508,15 @@ namespace ryujin
     RiemannSolver<dim, Number>::lambda1_minus(
         const primitive_type &riemann_data, const Number p_star) const
     {
+      const auto view = hyperbolic_system.view<dim, Number>();
+      const auto pinf = view.eos_interpolation_pinfty();
+
       const auto &[rho, u, p, gamma, a] = riemann_data;
 
       const auto factor =
           ScalarNumber(0.5) * (gamma + ScalarNumber(1.)) / gamma;
 
-      const Number tmp = positive_part((p_star - p) / p);
+      const Number tmp = safe_division(positive_part(p_star - p), p + pinf);
 
       return u - a * std::sqrt(Number(1.) + factor * tmp);
     }
@@ -465,12 +527,15 @@ namespace ryujin
     RiemannSolver<dim, Number>::lambda3_plus(const primitive_type &riemann_data,
                                              const Number p_star) const
     {
+      const auto view = hyperbolic_system.view<dim, Number>();
+      const auto pinf = view.eos_interpolation_pinfty();
+
       const auto &[rho, u, p, gamma, a] = riemann_data;
 
       const auto factor =
           ScalarNumber(0.5) * (gamma + ScalarNumber(1.)) / gamma;
 
-      const Number tmp = positive_part((p_star - p) / p);
+      const Number tmp = safe_division(positive_part(p_star - p), p + pinf);
 
       return u + a * std::sqrt(Number(1.) + factor * tmp);
     }
@@ -508,14 +573,15 @@ namespace ryujin
       const auto gamma = view.surrogate_gamma(U, p);
 
       const auto interpolation_b = view.eos_interpolation_b();
+      const auto pinf = view.eos_interpolation_pinfty();
       const auto x = Number(1.) - interpolation_b * rho;
-      const auto a = std::sqrt(gamma * p / (rho * x));
+      const auto a = std::sqrt(gamma * (p + pinf) / (rho * x));
 
 #ifdef EXPENSIVE_BOUNDS_CHECK
       AssertThrowSIMD(
-          Number(p),
-          [](auto val) { return val > ScalarNumber(0.); },
-          dealii::ExcMessage("Internal error: p <= 0."));
+          Number(p + pinf),
+          [](auto val) { return val >= ScalarNumber(0.); },
+          dealii::ExcMessage("Internal error: p + pinf < 0."));
 
       AssertThrowSIMD(
           x,
@@ -524,8 +590,8 @@ namespace ryujin
 
       AssertThrowSIMD(
           gamma,
-          [](auto val) { return val > ScalarNumber(1.); },
-          dealii::ExcMessage("Internal error: gamma <= 1."));
+          [](auto val) { return val >= ScalarNumber(1.); },
+          dealii::ExcMessage("Internal error: gamma < 1."));
 #endif
 
       return {{rho, proj_m * rho_inverse, p, gamma, a}};
@@ -538,6 +604,7 @@ namespace ryujin
         const primitive_type &riemann_data_j) const
     {
       const auto view = hyperbolic_system.view<dim, Number>();
+      const auto pinf = view.eos_interpolation_pinfty();
 
       const auto &[rho_i, u_i, p_i, gamma_i, a_i] = riemann_data_i;
       const auto &[rho_j, u_j, p_j, gamma_j, a_j] = riemann_data_j;
@@ -555,7 +622,7 @@ namespace ryujin
       std::cout << "a_right: " << a_j << std::endl;
 #endif
 
-      const Number p_max = std::max(p_i, p_j);
+      const Number p_max = std::max(p_i, p_j) + pinf;
       const Number phi_p_max = phi_of_p_max(riemann_data_i, riemann_data_j);
 
       if (!view.compute_strict_bounds()) {

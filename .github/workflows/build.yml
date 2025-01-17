@@ -58,6 +58,45 @@ jobs:
         make VERBOSE=1 -j2
 
   ################################################
+  # ubuntu-lts-22.04 with gcc-11, deal.II master #
+  ################################################
+
+  ubuntu-lts-2204-dealii-master-float:
+    name: lts-2204-deal.II-master-float
+    runs-on: [ubuntu-22.04]
+
+    container:
+      options: --user root
+      image: dealii/dealii:master-jammy
+
+    steps:
+    - uses: actions/checkout@v3
+      with:
+        submodules: 'true'
+    - name: info
+      run: |
+        g++ -v
+        cmake --version
+    - name: configure release
+      run: |
+        mkdir build-release
+        cd build-release
+        cmake -DNUMBER="float" -DCMAKE_CXX_FLAGS="-Werror" -DWITH_OPENMP=on ..
+    - name: build release
+      run: |
+        cd build-release
+        make VERBOSE=1 -j2
+    - name: configure debug
+      run: |
+        mkdir build-debug
+        cd build-debug
+        cmake -DNUMBER="float" -DCMAKE_CXX_FLAGS="-Werror" -DWITH_OPENMP=on -DCMAKE_BUILD_TYPE=Debug ..
+    - name: build debug
+      run: |
+        cd build-debug
+        make VERBOSE=1 -j2
+
+  ################################################
   # ubuntu-lts-22.04 with clang, deal.II master #
   ################################################
 
